@@ -1,115 +1,130 @@
 # openlab
 
-Open-source research agent framework: literature mining, hypothesis generation, experiment design, and SSH deployment.
+**简体中文** | [English](README.en.md)
 
-openlab is an open-source research agent framework that automates the scientific research workflow end-to-end: it searches and downloads papers, analyzes them, proposes research hypotheses and innovations, designs experiments, and deploys them to remote GPU servers over SSH.
+[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg)](https://github.com/RichardLitt/standard-readme)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.10-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react)](https://react.dev/)
 
-## Table of Contents
+开源科研 Agent 框架：文献挖掘、假设生成、实验设计、SSH 服务器部署自动化。
 
-- [Security](#security)
-- [Background](#background)
-- [Install](#install)
-- [Usage](#usage)
-- [Features](#features)
+openlab 是一个开源科研 Agent 框架，将科研流程全自动化：自动搜索并下载论文、分析论文、提出科研假设与创新点、设计实验，并通过 SSH 部署到远程 GPU 服务器运行。
+
+## 目录
+
+- [安全](#安全)
+- [背景](#背景)
+- [安装](#安装)
+- [使用](#使用)
+- [特性](#特性)
 - [API](#api)
-- [Maintainers](#maintainers)
-- [Contributing](#contributing)
-- [License](#license)
+- [维护者](#维护者)
+- [贡献](#贡献)
+- [许可证](#许可证)
 
-## Security
+## 安全
 
-- LLM API keys are read from configuration (a local config file or environment variables) and are never hardcoded or committed to the repository.
-- The `data/` directory (downloaded PDFs, SQLite database, and `llm_config.json`) is gitignored.
-- Do not commit `.env` files or any credentials.
+- LLM API Key 从配置读取（本地配置文件或环境变量），绝不硬编码、不入库。
+- `data/` 目录（下载的 PDF、SQLite 数据库、`llm_config.json`）已被 gitignore。
+- 禁止提交 `.env` 文件或任何凭据。
 
-## Background
+## 背景
 
-openlab frees researchers from repetitive work by automating the full research pipeline:
+openlab 通过自动化科研全流程，把科研人员从重复劳动中解放出来：
 
-1. **Literature mining** — search and download papers from arXiv.
-2. **Hypothesis generation** — analyze papers and propose research hypotheses and innovations.
-3. **Experiment design** — turn hypotheses into executable experiment plans.
-4. **SSH deployment** — deploy and monitor experiments on remote GPU servers.
+1. **文献挖掘** — 从 arXiv 搜索并下载论文。
+2. **假设生成** — 分析论文并提出科研假设与创新点。
+3. **实验设计** — 将假设转化为可执行的实验方案。
+4. **SSH 部署** — 在远程 GPU 服务器上部署与监控实验。
 
-The project follows a Spec-Driven Development (SDD) process with a multi-agent collaboration workflow. See [AGENTS.md](AGENTS.md).
+项目遵循规格驱动开发（SDD）与多 Agent 协作工作流，详见 [AGENTS.md](AGENTS.md)。
 
-## Install
+## 安装
 
-### Prerequisites
+### 前置依赖
 
 - [Python](https://www.python.org/) 3.10+
 - [Node.js](https://nodejs.org/) 18+
 
-### One-click start (Windows PowerShell)
+### 一键启动（Windows PowerShell）
 
 ```powershell
 cd openlab
 .\start.ps1
 ```
 
-The script detects and installs missing dependencies (Python virtualenv, backend `pip` packages, Node/npm packages), then starts the backend and frontend with merged output.
+脚本会自动检测并安装缺失依赖（Python 虚拟环境、后端 pip 包、Node/npm 包），然后合并输出启动前后端。
 
-### Manual setup
+### 手动安装
 
 ```powershell
-# Backend
+# 后端
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-copy .env.example .env      # fill in LLM_API_KEY etc.
+copy .env.example .env      # 填写 LLM_API_KEY 等
 uvicorn app.main:app --reload --port 8001
 
-# Frontend
+# 前端
 cd ..\frontend
 npm install
 npm run dev                  # http://localhost:5174
 ```
 
-## Usage
+## 使用
 
 ```powershell
-.\start.ps1                  # backend on 8001, frontend on 5174
-.\start.ps1 -Port 9000       # custom backend port
+.\start.ps1                  # 后端 8001，前端 5174
+.\start.ps1 -Port 9000       # 自定义后端端口
 $env:OPENLAB_PORT=9000; .\start.ps1
 ```
 
-Open http://localhost:5174 in your browser.
+浏览器打开 http://localhost:5174。
 
-- **Keyword search** — enter a query (e.g. `attention transformer`) and filter by category and date; works without an LLM key.
-- **Topic search** — enter a research topic; the LLM decomposes it into an arXiv query. Requires configuring an LLM platform and API key in the UI (or via `PUT /api/llm/config`).
-- **Download** — select papers and download their PDFs to `backend/data/papers/`; metadata is stored in SQLite with deduplication.
+- **关键词搜索** — 输入检索词（如 `attention transformer`），支持分类与日期过滤；无需 LLM Key。
+- **主题搜索** — 输入研究主题，由 LLM 拆解为 arXiv 检索式；需在界面配置 LLM 平台与 API Key（或 `PUT /api/llm/config`）。
+- **下载** — 勾选论文下载 PDF 到 `backend/data/papers/`；元数据入库 SQLite 并去重。
 
-## Features
+## 特性
 
-- arXiv search by keyword/query and by topic (LLM-decomposed).
-- Configurable result count, category and date filtering.
-- PDF download with progress/status, local storage, and deduplication.
-- LLM orchestration via LangChain (`ChatOpenAI` with a custom `base_url`), OpenAI-compatible.
-- Built-in LLM platform presets (OpenAI, DeepSeek, Alibaba DashScope, SiliconFlow, Zhipu GLM, Moonshot Kimi) plus custom configuration.
+- 支持关键词/检索式搜索，以及主题（LLM 拆解）搜索 arXiv。
+- 可配置返回数量、分类与日期过滤。
+- PDF 下载带进度/状态、本地存储与去重。
+- 基于 LangChain 的 LLM 编排（`ChatOpenAI` 自定义 `base_url`，OpenAI 兼容）。
+- 内置 LLM 平台预设（OpenAI、DeepSeek、阿里云百炼、硅基流动、智谱 GLM、Moonshot Kimi）+ 自定义。
+- 论文自动分析（4 维度结构化）、多篇对比综述、创新点设计。
+- 搜索历史与创新点历史管理、本地搜索过滤、LLM 连通性测试。
 
 ## API
 
-The backend exposes the following endpoints (default port 8001):
+后端默认端口 8001，接口如下：
 
-| Method | Path | Description |
+| 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/health` | Health check |
-| POST | `/api/search` | Keyword/query search on arXiv |
-| POST | `/api/search/topic` | Topic search (LLM decomposition) |
-| POST | `/api/download` | Download PDFs (background task) |
-| GET | `/api/papers` | List downloaded papers |
-| GET | `/api/llm/presets` | LLM platform presets |
-| GET/PUT | `/api/llm/config` | Read/save LLM configuration |
+| GET | `/api/health` | 健康检查 |
+| POST | `/api/search` | 关键词/检索式搜索 arXiv |
+| POST | `/api/search/topic` | 主题搜索（LLM 拆解） |
+| POST | `/api/download` | 下载 PDF（后台任务） |
+| GET | `/api/papers` | 查询已下载论文 |
+| GET | `/api/llm/presets` | LLM 平台预设 |
+| GET/PUT | `/api/llm/config` | 读取/保存 LLM 配置 |
+| POST | `/api/analyze/{id}` | 单篇论文分析（后台） |
+| POST | `/api/analyze/batch` | 批量分析 |
+| POST | `/api/review` | 多篇对比综述 |
+| POST | `/api/innovations` | 生成创新点 |
+| POST | `/api/llm/test` | LLM 连通性测试 |
 
-## Maintainers
+## 维护者
 
 - 小洋 ([@shi-YangYang](https://github.com/shi-YangYang))
 
-## Contributing
+## 贡献
 
-Questions and issues are welcome at the [GitHub issue tracker](https://github.com/shi-YangYang/openlab/issues). Pull requests are accepted. Before contributing, please read [AGENTS.md](AGENTS.md) for the development process and conventions.
+问题与反馈欢迎提交到 [GitHub Issue](https://github.com/shi-YangYang/openlab/issues)，接受 Pull Request。贡献前请阅读 [AGENTS.md](AGENTS.md) 了解开发流程与约定。
 
-## License
+## 许可证
 
 [MIT](LICENSE) © 小洋

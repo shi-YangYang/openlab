@@ -1,0 +1,11 @@
+#root {
+  min-height: 100vh;
+}
+
+.ant-layout {
+  min-height: 100vh;
+}
+
+.ant-card .ant-card-body {
+  padding-bottom: 0 !important;
+}
