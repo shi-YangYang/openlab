@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   App as AntApp,
   Button,
   Card,
   Divider,
+  Input,
   Modal,
   Popconfirm,
   Space,
@@ -13,7 +14,7 @@ import {
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
-import { ClearOutlined, DeleteOutlined, EyeOutlined, ReadOutlined } from '@ant-design/icons'
+import { ClearOutlined, DeleteOutlined, EyeOutlined, ReadOutlined, SearchOutlined } from '@ant-design/icons'
 import { clearInnovations, deleteInnovation, getInnovation, listInnovations, listPapers } from '../api'
 import type { InnovationHistoryItem, InnovationRecord, PaperRecord } from '../types'
 import { basePaperColumns, paperActionColumn } from './PaperTable'
@@ -38,6 +39,7 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
   const [sourcePapers, setSourcePapers] = useState<PaperRecord[]>([])
   const [sourceOpen, setSourceOpen] = useState(false)
   const [sourceLoading, setSourceLoading] = useState(false)
+  const [keyword, setKeyword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -103,6 +105,14 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
     }
   }
 
+  const filteredItems = useMemo(() => {
+    const kw = keyword.trim().toLowerCase()
+    if (!kw) return items
+    return items.filter((item) =>
+      (item.arxiv_ids || []).join(' ').toLowerCase().includes(kw),
+    )
+  }, [items, keyword])
+
   const columns: TableProps<InnovationHistoryItem>['columns'] = [
     {
       title: '时间',
@@ -160,16 +170,26 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
     <Card
       title="创新点历史"
       extra={
-        <Popconfirm title="确认删除全部创新点历史？" onConfirm={() => void handleClear()}>
-          <Button danger icon={<ClearOutlined />} disabled={!items.length}>
-            删除全部
-          </Button>
-        </Popconfirm>
+        <Space wrap>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="按来源论文 arXiv ID 过滤"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={{ width: 200 }}
+          />
+          <Popconfirm title="确认删除全部创新点历史？" onConfirm={() => void handleClear()}>
+            <Button danger icon={<ClearOutlined />} disabled={!items.length}>
+              删除全部
+            </Button>
+          </Popconfirm>
+        </Space>
       }
     >
       <Table
         rowKey="id"
-        dataSource={items}
+        dataSource={filteredItems}
         columns={columns}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false }}

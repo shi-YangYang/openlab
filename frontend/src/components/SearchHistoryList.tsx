@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { App as AntApp, Button, Card, Popconfirm, Space, Table, Tag, Typography } from 'antd'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { App as AntApp, Button, Card, Input, Popconfirm, Space, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import { ClearOutlined, DeleteOutlined } from '@ant-design/icons'
+import { ClearOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   clearSearchHistory,
   deleteSearchHistory,
@@ -24,6 +24,7 @@ export default function SearchHistoryList({ onRestore }: Props) {
   const [items, setItems] = useState<SearchHistoryItem[]>([])
   const [loading, setLoading] = useState(false)
   const [restoringId, setRestoringId] = useState<number | null>(null)
+  const [keyword, setKeyword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -71,6 +72,12 @@ export default function SearchHistoryList({ onRestore }: Props) {
       message.error(e instanceof Error ? e.message : '清空失败')
     }
   }
+
+  const filteredItems = useMemo(() => {
+    const kw = keyword.trim().toLowerCase()
+    if (!kw) return items
+    return items.filter((item) => (item.query || '').toLowerCase().includes(kw))
+  }, [items, keyword])
 
   const columns: TableProps<SearchHistoryItem>['columns'] = [
     {
@@ -127,16 +134,26 @@ export default function SearchHistoryList({ onRestore }: Props) {
     <Card
       title="搜索历史"
       extra={
-        <Popconfirm title="确认清空全部历史？" onConfirm={() => void handleClear()}>
-          <Button danger icon={<ClearOutlined />} disabled={!items.length}>
-            清空全部
-          </Button>
-        </Popconfirm>
+        <Space wrap>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="按查询关键字过滤"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={{ width: 200 }}
+          />
+          <Popconfirm title="确认清空全部历史？" onConfirm={() => void handleClear()}>
+            <Button danger icon={<ClearOutlined />} disabled={!items.length}>
+              清空全部
+            </Button>
+          </Popconfirm>
+        </Space>
       }
     >
       <Table
         rowKey="id"
-        dataSource={items}
+        dataSource={filteredItems}
         columns={columns}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false }}

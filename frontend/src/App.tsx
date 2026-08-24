@@ -112,7 +112,7 @@ export default function App() {
   )
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout>
       <Header style={{ display: 'flex', alignItems: 'center' }}>
         <div style={{ color: '#fff', fontSize: 18, fontWeight: 600, marginRight: 32, whiteSpace: 'nowrap' }}>
           openlab

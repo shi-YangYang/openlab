@@ -6,6 +6,7 @@ import type {
   InnovationRecord,
   LlmConfig,
   LlmPreset,
+  LlmTestResult,
   Paper,
   PaperRecord,
   ReviewRecord,
@@ -125,6 +126,10 @@ export async function getLlmConfig(): Promise<LlmConfig> {
 
 export async function saveLlmConfig(config: Partial<LlmConfig>): Promise<LlmConfig> {
   return put<LlmConfig>('/llm/config', config)
+}
+
+export async function testLlmConnection(config: Partial<LlmConfig>): Promise<LlmTestResult> {
+  return post<LlmTestResult>('/llm/test', config)
 }
 
 export async function analyzePaper(

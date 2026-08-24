@@ -1,8 +1,10 @@
 """FastAPI application entry point."""
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -24,6 +26,8 @@ from .schemas import (
     LLMConfig,
     LLMConfigUpdate,
     LLMPreset,
+    LLMTestRequest,
+    LLMTestResponse,
     InnovationHistoryItem,
     InnovationRecord,
     InnovationRequest,
@@ -208,6 +212,82 @@ async def update_llm_config(req: LLMConfigUpdate) -> dict:
         model=req.model,
     )
     return get_effective_config()
+
+
+def _redact(text: str, secret: str) -> str:
+    if secret and secret in text:
+        return text.replace(secret, "***")
+    return text
+
+
+def _extract_error_body(resp: httpx.Response) -> str:
+    try:
+        data = resp.json()
+    except ValueError:
+        return (resp.text or "").strip()[:200]
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        return str(error.get("message") or error)[:200]
+    if isinstance(error, str):
+        return error[:200]
+    return (resp.text or "").strip()[:200]
+
+
+def _extract_content_summary(data: Any) -> str:
+    try:
+        choices = data.get("choices") if isinstance(data, dict) else None
+        content = choices[0].get("message", {}).get("content", "")
+    except (IndexError, AttributeError, TypeError):
+        content = ""
+    if isinstance(content, str) and content.strip():
+        return content.strip()[:200]
+    return "连接成功"
+
+
+@app.post("/api/llm/test", response_model=LLMTestResponse)
+async def test_llm_connection(req: LLMTestRequest) -> dict:
+    base_url = (req.base_url or "").strip()
+    api_key = (req.api_key or "").strip()
+    model = (req.model or "").strip()
+
+    if not base_url or not api_key or not model:
+        return LLMTestResponse(ok=False, message="请先填写完整配置")
+
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+    }
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+    except httpx.TimeoutException:
+        return LLMTestResponse(ok=False, message="请求超时（15 秒）")
+    except httpx.HTTPError as exc:
+        message = _redact(str(exc), api_key)
+        return LLMTestResponse(ok=False, message=f"请求失败：{message}")
+    except Exception as exc:
+        message = _redact(str(exc), api_key)
+        return LLMTestResponse(ok=False, message=f"请求失败：{message}")
+
+    if resp.status_code >= 400:
+        detail = _redact(_extract_error_body(resp), api_key)
+        return LLMTestResponse(
+            ok=False,
+            message=f"HTTP {resp.status_code}: {detail}" if detail else f"HTTP {resp.status_code}",
+            latency_ms=latency_ms,
+        )
+
+    try:
+        summary = _extract_content_summary(resp.json())
+    except ValueError:
+        summary = "连接成功"
+    return LLMTestResponse(ok=True, message=summary, latency_ms=latency_ms)
 
 
 @app.post("/api/analyze/batch", response_model=AnalyzeBatchResponse)

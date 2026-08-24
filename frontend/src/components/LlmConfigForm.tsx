@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { App as AntApp, Button, Form, Input, Select, Space, Typography } from 'antd'
-import { SaveOutlined } from '@ant-design/icons'
-import { getLlmConfig, getLlmPresets, saveLlmConfig } from '../api'
-import type { LlmPreset } from '../types'
+import { ApiOutlined, SaveOutlined } from '@ant-design/icons'
+import { getLlmConfig, getLlmPresets, saveLlmConfig, testLlmConnection } from '../api'
+import type { LlmPreset, LlmTestResult } from '../types'
 
 interface FormValues {
   preset?: string
@@ -18,6 +18,8 @@ export default function LlmConfigForm() {
   const [form] = Form.useForm<FormValues>()
   const [presets, setPresets] = useState<LlmPreset[]>([])
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<LlmTestResult | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -64,6 +66,31 @@ export default function LlmConfigForm() {
     }
   }
 
+  const handleTest = async () => {
+    const values = form.getFieldsValue()
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await testLlmConnection({
+        base_url: values.base_url,
+        model: values.model,
+        api_key: values.api_key,
+      })
+      setTestResult(result)
+      if (result.ok) {
+        message.success('连通性测试通过')
+      } else {
+        message.error(result.message || '连通性测试失败')
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '连通性测试失败'
+      setTestResult({ ok: false, message: msg })
+      message.error(msg)
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const presetOptions = [
     { value: CUSTOM_PRESET, label: '自定义' },
     ...presets.map((p) => ({ value: p.name, label: p.name })),
@@ -100,7 +127,20 @@ export default function LlmConfigForm() {
           <Button type="primary" htmlType="submit" loading={saving} icon={<SaveOutlined />}>
             保存配置
           </Button>
+          <Button loading={testing} icon={<ApiOutlined />} onClick={() => void handleTest()}>
+            连通性测试
+          </Button>
         </Space>
+        {testResult && (
+          <Typography.Text
+            type={testResult.ok ? 'success' : 'danger'}
+            style={{ display: 'block', marginTop: 12 }}
+          >
+            {testResult.ok
+              ? `连接成功，耗时 ${testResult.latency_ms ?? '-'} ms`
+              : testResult.message}
+          </Typography.Text>
+        )}
       </Form>
     </div>
   )

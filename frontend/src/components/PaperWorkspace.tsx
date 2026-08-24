@@ -1,5 +1,6 @@
-import { Button, Card, Space, Tag } from 'antd'
-import { BulbOutlined, DownloadOutlined, FileSearchOutlined, TeamOutlined } from '@ant-design/icons'
+import { useMemo, useState } from 'react'
+import { Button, Card, Input, Space, Tag } from 'antd'
+import { BulbOutlined, DownloadOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
@@ -26,6 +27,18 @@ export default function PaperWorkspace({ title, workspace }: Props) {
     handleAnalyzeOne,
   } = workspace
 
+  const [keyword, setKeyword] = useState('')
+
+  const filteredPapers = useMemo(() => {
+    const kw = keyword.trim().toLowerCase()
+    if (!kw) return papers
+    return papers.filter((p) => {
+      const title = (p.title || '').toLowerCase()
+      const authors = (p.authors || []).join(' ').toLowerCase()
+      return title.includes(kw) || authors.includes(kw)
+    })
+  }, [papers, keyword])
+
   const showStatus = Object.keys(statusMap).length > 0
 
   return (
@@ -33,6 +46,14 @@ export default function PaperWorkspace({ title, workspace }: Props) {
       title={title}
       extra={
         <Space wrap>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="按标题/作者过滤"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={{ width: 200 }}
+          />
           {papers.length > 0 && (
             <Tag>{selectedIds.length ? `已选 ${selectedIds.length} 篇` : '将作用于全部'}</Tag>
           )}
@@ -63,7 +84,7 @@ export default function PaperWorkspace({ title, workspace }: Props) {
       }
     >
       <PaperTable
-        papers={papers}
+        papers={filteredPapers}
         loading={loading}
         selectedIds={selectedIds}
         onSelect={setSelectedIds}

@@ -68,6 +68,12 @@ export interface LlmConfig {
   model: string
 }
 
+export interface LlmTestResult {
+  ok: boolean
+  message: string
+  latency_ms?: number | null
+}
+
 export interface AnalysisSummary {
   research_problem: string
   method: string

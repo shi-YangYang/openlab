@@ -86,6 +86,18 @@ class LLMConfigUpdate(BaseModel):
     model: Optional[str] = None
 
 
+class LLMTestRequest(BaseModel):
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+
+class LLMTestResponse(BaseModel):
+    ok: bool
+    message: str
+    latency_ms: Optional[int] = None
+
+
 class AnalysisSummary(BaseModel):
     research_problem: str = ""
     method: str = ""
