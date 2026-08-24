@@ -16,6 +16,7 @@ import LlmConfigForm from './components/LlmConfigForm'
 import AnalysisModal from './components/AnalysisModal'
 import ReviewModal from './components/ReviewModal'
 import InnovationModal from './components/InnovationModal'
+import ExperimentModal from './components/ExperimentModal'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
 import { searchPapers, searchTopic } from './api'
 import type { AnalysisRecord, Paper, SearchHistoryDetail } from './types'
@@ -41,6 +42,8 @@ export default function App() {
   const [reviewOpen, setReviewOpen] = useState(false)
   const [innovationIds, setInnovationIds] = useState<string[]>([])
   const [innovationOpen, setInnovationOpen] = useState(false)
+  const [experimentIds, setExperimentIds] = useState<string[]>([])
+  const [experimentOpen, setExperimentOpen] = useState(false)
 
   const openAnalyze = useCallback((arxivId: string) => {
     setAnalyzeTarget(arxivId)
@@ -57,15 +60,22 @@ export default function App() {
     setInnovationOpen(true)
   }, [])
 
+  const openExperiment = useCallback((ids: string[]) => {
+    setExperimentIds(ids)
+    setExperimentOpen(true)
+  }, [])
+
   const searchWorkspace = usePaperWorkspace({
     onAnalyzeOne: openAnalyze,
     onOpenReview: openReview,
     onOpenInnovation: openInnovation,
+    onOpenExperiment: openExperiment,
   })
   const libraryWorkspace = usePaperWorkspace({
     onAnalyzeOne: openAnalyze,
     onOpenReview: openReview,
     onOpenInnovation: openInnovation,
+    onOpenExperiment: openExperiment,
   })
 
   useEffect(() => {
@@ -195,6 +205,12 @@ export default function App() {
           arxivIds={innovationIds}
           open={innovationOpen}
           onClose={() => setInnovationOpen(false)}
+        />
+        <ExperimentModal
+          sourceType="papers"
+          arxivIds={experimentIds}
+          open={experimentOpen}
+          onClose={() => setExperimentOpen(false)}
         />
       </Content>
     </Layout>

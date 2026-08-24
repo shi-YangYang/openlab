@@ -2,6 +2,7 @@ import type {
   AnalysisLanguage,
   AnalysisRecord,
   DownloadResult,
+  ExperimentRecord,
   InnovationHistoryItem,
   InnovationRecord,
   LlmConfig,
@@ -204,6 +205,28 @@ export async function clearInnovations(): Promise<void> {
 
 export async function exportInnovationMarkdown(id: number): Promise<string> {
   const res = await fetch(`${BASE}/innovations/${id}/export`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.text()
+}
+
+export interface CreateExperimentParams {
+  source_type: 'innovation' | 'papers'
+  innovation_id?: number | null
+  arxiv_ids?: string[]
+  count: number
+  language: AnalysisLanguage
+}
+
+export async function createExperiment(params: CreateExperimentParams): Promise<ExperimentRecord> {
+  return post<ExperimentRecord>('/experiments', params)
+}
+
+export async function getExperiment(id: number): Promise<ExperimentRecord> {
+  return get<ExperimentRecord>(`/experiments/${id}`)
+}
+
+export async function exportExperimentMarkdown(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/experiments/${id}/export`)
   if (!res.ok) throw new Error(await res.text())
   return res.text()
 }

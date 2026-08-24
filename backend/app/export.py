@@ -137,3 +137,39 @@ def innovations_to_markdown(
             "",
         ]
     return "\n".join(lines) + "\n"
+
+
+def experiments_to_markdown(
+    experiments: List[Dict[str, Any]], source: str, language: str
+) -> str:
+    """Render a list of experiment plans as Markdown (FR-8)."""
+    lang_label = _LANGUAGE_LABEL.get(language, language)
+
+    lines = [
+        "# 实验方案设计",
+        "",
+        f"- 来源: {source}",
+        f"- 语言: {lang_label}",
+        "",
+    ]
+    for idx, plan in enumerate(experiments, start=1):
+        lines += [
+            f"## 方案 {idx}",
+            "",
+            "### 假设",
+            plan.get("hypothesis") or "-",
+            "",
+            "### 目标",
+            plan.get("goal") or "-",
+            "",
+            "### 数据集",
+            _bullets(plan.get("datasets", [])),
+            "",
+            "### 基线",
+            _bullets(plan.get("baselines", [])),
+            "",
+            "### 评价指标",
+            _bullets(plan.get("metrics", [])),
+            "",
+        ]
+    return "\n".join(lines) + "\n"

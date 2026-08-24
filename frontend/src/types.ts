@@ -163,3 +163,24 @@ export interface InnovationHistoryItem {
 }
 
 export type AnalysisLanguage = 'zh' | 'en'
+
+export interface ExperimentPlan {
+  hypothesis: string
+  goal: string
+  datasets: string[]
+  baselines: string[]
+  metrics: string[]
+}
+
+export interface ExperimentRecord {
+  id?: number
+  source_type: string
+  innovation_id?: number | null
+  arxiv_ids: string[]
+  content: ExperimentPlan[] | null
+  language: string
+  status: string
+  error?: string | null
+  progress?: number
+  created_at?: string
+}

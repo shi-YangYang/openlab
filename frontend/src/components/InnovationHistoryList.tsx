@@ -14,10 +14,11 @@ import {
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
-import { ClearOutlined, DeleteOutlined, EyeOutlined, ReadOutlined, SearchOutlined } from '@ant-design/icons'
+import { ClearOutlined, DeleteOutlined, ExperimentOutlined, EyeOutlined, ReadOutlined, SearchOutlined } from '@ant-design/icons'
 import { clearInnovations, deleteInnovation, getInnovation, listInnovations, listPapers } from '../api'
 import type { InnovationHistoryItem, InnovationRecord, PaperRecord } from '../types'
 import { basePaperColumns, paperActionColumn } from './PaperTable'
+import ExperimentModal from './ExperimentModal'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
   pending: { color: 'processing', label: '生成中' },
@@ -40,6 +41,8 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
   const [sourceOpen, setSourceOpen] = useState(false)
   const [sourceLoading, setSourceLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
+  const [experimentInnovationId, setExperimentInnovationId] = useState<number | null>(null)
+  const [experimentOpen, setExperimentOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -95,6 +98,11 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
     }
   }
 
+  const handleGenerateExperiment = (item: InnovationHistoryItem) => {
+    setExperimentInnovationId(item.id)
+    setExperimentOpen(true)
+  }
+
   const handleClear = async () => {
     try {
       await clearInnovations()
@@ -145,7 +153,7 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
     {
       title: '操作',
       key: 'actions',
-      width: 230,
+      width: 300,
       render: (_: unknown, r) => (
         <Space size={4}>
           <Button size="small" icon={<EyeOutlined />} onClick={() => void handleView(r)}>
@@ -153,6 +161,14 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
           </Button>
           <Button size="small" icon={<ReadOutlined />} onClick={() => void handleViewSources(r)}>
             来源
+          </Button>
+          <Button
+            size="small"
+            icon={<ExperimentOutlined />}
+            disabled={r.status !== 'done'}
+            onClick={() => handleGenerateExperiment(r)}
+          >
+            实验方案
           </Button>
           <Popconfirm title="确定删除该条创新点历史？" onConfirm={() => void handleDelete(r)}>
             <Button size="small" danger icon={<DeleteOutlined />}>
@@ -260,6 +276,14 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
           <Typography.Text type="secondary">暂无来源论文。</Typography.Text>
         )}
       </Modal>
+
+      <ExperimentModal
+        sourceType="innovation"
+        innovationId={experimentInnovationId}
+        arxivIds={[]}
+        open={experimentOpen}
+        onClose={() => setExperimentOpen(false)}
+      />
     </Card>
   )
 }

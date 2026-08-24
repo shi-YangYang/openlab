@@ -208,3 +208,32 @@ class ReviewRecord(BaseModel):
     error: Optional[str] = None
     progress: Optional[int] = 0
     created_at: Optional[str] = None
+
+
+class ExperimentPlan(BaseModel):
+    hypothesis: str = ""
+    goal: str = ""
+    datasets: List[str] = Field(default_factory=list)
+    baselines: List[str] = Field(default_factory=list)
+    metrics: List[str] = Field(default_factory=list)
+
+
+class ExperimentRecord(BaseModel):
+    id: Optional[int] = None
+    source_type: str = "papers"
+    innovation_id: Optional[int] = None
+    arxiv_ids: List[str] = Field(default_factory=list)
+    content: Optional[List[ExperimentPlan]] = None
+    language: str = "zh"
+    status: str = "pending"
+    error: Optional[str] = None
+    progress: Optional[int] = 0
+    created_at: Optional[str] = None
+
+
+class ExperimentRequest(BaseModel):
+    source_type: str = "papers"
+    innovation_id: Optional[int] = None
+    arxiv_ids: List[str] = Field(default_factory=list)
+    count: int = Field(default=1)
+    language: str = Field(default="zh", pattern="^(zh|en)$")

@@ -7,6 +7,7 @@ interface Options {
   onAnalyzeOne?: (arxivId: string) => void
   onOpenReview?: (arxivIds: string[]) => void
   onOpenInnovation?: (arxivIds: string[]) => void
+  onOpenExperiment?: (arxivIds: string[]) => void
 }
 
 export function usePaperWorkspace(options: Options = {}) {
@@ -196,6 +197,14 @@ export function usePaperWorkspace(options: Options = {}) {
     options.onOpenInnovation?.(selectedIds)
   }
 
+  const handleOpenExperiment = () => {
+    if (selectedIds.length < 1) {
+      message.warning('请选择至少一篇论文生成实验方案')
+      return
+    }
+    options.onOpenExperiment?.(selectedIds)
+  }
+
   const handleAnalyzeOne = (arxivId: string) => {
     options.onAnalyzeOne?.(arxivId)
   }
@@ -225,6 +234,7 @@ export function usePaperWorkspace(options: Options = {}) {
     handleBatchAnalyze,
     handleOpenReview,
     handleOpenInnovation,
+    handleOpenExperiment,
     handleAnalyzeOne,
     handleAnalysisStatus,
   }

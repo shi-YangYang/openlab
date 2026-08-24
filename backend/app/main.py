@@ -9,7 +9,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
-from . import analysis, database, downloader, export, innovation
+from . import analysis, database, downloader, experiment, export, innovation
 from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
@@ -23,6 +23,8 @@ from .schemas import (
     AnalyzeResponse,
     DownloadRequest,
     DownloadResponse,
+    ExperimentRecord,
+    ExperimentRequest,
     LLMConfig,
     LLMConfigUpdate,
     LLMPreset,
@@ -468,5 +470,90 @@ async def export_innovation(innovation_id: int) -> Response:
         media_type="text/markdown; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="innovations-{innovation_id}.md"'
+        },
+    )
+
+
+def _experiment_source_label(record: dict) -> str:
+    if record.get("source_type") == "innovation":
+        return f"创新点 #{record.get('innovation_id')}"
+    arxiv_ids = record.get("arxiv_ids", [])
+    return "论文: " + (", ".join(arxiv_ids) if arxiv_ids else "-")
+
+
+@app.post("/api/experiments", response_model=ExperimentRecord)
+async def create_experiment(
+    req: ExperimentRequest, background_tasks: BackgroundTasks
+) -> dict:
+    if req.source_type not in ("innovation", "papers"):
+        raise HTTPException(
+            status_code=400, detail="source_type must be 'innovation' or 'papers'"
+        )
+    if not 1 <= req.count <= 3:
+        raise HTTPException(status_code=400, detail="count must be between 1 and 3")
+
+    arxiv_ids = list(dict.fromkeys(req.arxiv_ids or []))
+    innovation_id = req.innovation_id
+
+    if req.source_type == "innovation":
+        if innovation_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="innovation_id is required for source_type=innovation",
+            )
+        innovation = database.get_innovation(innovation_id)
+        if innovation is None:
+            raise HTTPException(
+                status_code=404, detail=f"Innovation not found: {innovation_id}"
+            )
+        arxiv_ids = innovation.get("arxiv_ids", [])
+    else:
+        if not arxiv_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="arxiv_ids must not be empty for source_type=papers",
+            )
+
+    experiment_id = database.insert_experiment(
+        req.source_type, innovation_id, arxiv_ids, None, req.language, status="pending"
+    )
+    background_tasks.add_task(
+        experiment.run_experiment_job,
+        experiment_id,
+        req.source_type,
+        innovation_id,
+        arxiv_ids,
+        req.language,
+        req.count,
+    )
+    record = database.get_experiment(experiment_id)
+    if record is None:
+        raise HTTPException(status_code=500, detail="experiment record not found")
+    return record
+
+
+@app.get("/api/experiments/{experiment_id}", response_model=ExperimentRecord)
+async def get_experiment(experiment_id: int) -> dict:
+    record = database.get_experiment(experiment_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"No experiment {experiment_id}")
+    return record
+
+
+@app.get("/api/experiments/{experiment_id}/export")
+async def export_experiment(experiment_id: int) -> Response:
+    record = database.get_experiment(experiment_id)
+    if record is None or record.get("content") is None:
+        raise HTTPException(status_code=404, detail=f"No experiment {experiment_id}")
+    markdown = export.experiments_to_markdown(
+        record["content"],
+        _experiment_source_label(record),
+        record.get("language", "zh"),
+    )
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="experiments-{experiment_id}.md"'
         },
     )

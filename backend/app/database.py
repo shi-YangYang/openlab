@@ -56,6 +56,19 @@ CREATE TABLE IF NOT EXISTS innovations (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS experiments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL,
+    innovation_id INTEGER,
+    arxiv_ids TEXT,
+    content TEXT,
+    language TEXT DEFAULT 'zh',
+    status TEXT DEFAULT 'pending',
+    error TEXT,
+    progress INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS search_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     query TEXT NOT NULL,
@@ -504,6 +517,89 @@ def clear_innovations() -> None:
     try:
         conn.execute("DELETE FROM innovations")
         conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_experiment(
+    source_type: str,
+    innovation_id: Optional[int],
+    arxiv_ids: List[str],
+    content: Optional[str],
+    language: str = "zh",
+    status: str = "pending",
+    error: Optional[str] = None,
+) -> int:
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO experiments
+                (source_type, innovation_id, arxiv_ids, content, language, status, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (source_type, innovation_id, json.dumps(arxiv_ids), content, language, status, error),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def update_experiment(
+    experiment_id: int, content: Optional[str], status: str, error: Optional[str] = None
+) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE experiments SET content = ?, status = ?, error = ? WHERE id = ?",
+            (content, status, error, experiment_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_experiment_progress(experiment_id: int, progress: int) -> None:
+    """Update the experiment progress (0-100)."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE experiments SET progress = ? WHERE id = ?",
+            (progress, experiment_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_experiment(experiment_id: int) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
+        ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        data["arxiv_ids"] = json.loads(data["arxiv_ids"]) if data.get("arxiv_ids") else []
+        data["content"] = json.loads(data["content"]) if data.get("content") else None
+        return data
+    finally:
+        conn.close()
+
+
+def list_experiments() -> List[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT * FROM experiments ORDER BY id DESC").fetchall()
+        result = []
+        for row in rows:
+            data = dict(row)
+            data["arxiv_ids"] = json.loads(data["arxiv_ids"]) if data.get("arxiv_ids") else []
+            data["content"] = json.loads(data["content"]) if data.get("content") else None
+            result.append(data)
+        return result
     finally:
         conn.close()
 

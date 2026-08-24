@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Button, Card, Input, Space, Tag } from 'antd'
-import { BulbOutlined, DownloadOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined } from '@ant-design/icons'
+import { BulbOutlined, DownloadOutlined, ExperimentOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
@@ -24,6 +24,7 @@ export default function PaperWorkspace({ title, workspace }: Props) {
     handleBatchAnalyze,
     handleOpenReview,
     handleOpenInnovation,
+    handleOpenExperiment,
     handleAnalyzeOne,
   } = workspace
 
@@ -79,6 +80,9 @@ export default function PaperWorkspace({ title, workspace }: Props) {
           </Button>
           <Button icon={<BulbOutlined />} disabled={!papers.length} onClick={handleOpenInnovation}>
             生成创新点
+          </Button>
+          <Button icon={<ExperimentOutlined />} disabled={!papers.length} onClick={handleOpenExperiment}>
+            生成实验方案
           </Button>
         </Space>
       }
