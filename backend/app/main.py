@@ -1,10 +1,11 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from . import analysis, database, downloader, export
 from .arxiv import ArxivClient
@@ -27,6 +28,8 @@ from .schemas import (
     PaperRecord,
     ReviewRecord,
     ReviewRequest,
+    SearchHistoryDetail,
+    SearchHistoryItem,
     SearchRequest,
     TopicSearchRequest,
     TopicSearchResponse,
@@ -94,7 +97,9 @@ async def search(
     papers = await arxiv_client.search(
         req.query, max_results=req.max_results, category=req.category
     )
-    return _filter_by_date(papers, req.date_from, req.date_to)[: req.max_results]
+    result = _filter_by_date(papers, req.date_from, req.date_to)[: req.max_results]
+    database.save_search_history(req.query, "keyword", result)
+    return result
 
 
 @app.post("/api/search/topic", response_model=TopicSearchResponse)
@@ -113,7 +118,34 @@ async def search_topic(
         query, max_results=req.max_results, category=req.category
     )
     papers = _filter_by_date(papers, req.date_from, req.date_to)[: req.max_results]
+    database.save_search_history(req.topic, "topic", papers)
     return {"query": query, "papers": papers}
+
+
+@app.get("/api/search/history", response_model=List[SearchHistoryItem])
+async def list_search_history() -> List[dict]:
+    return database.list_search_history()
+
+
+@app.get("/api/search/history/{history_id}", response_model=SearchHistoryDetail)
+async def get_search_history(history_id: int) -> dict:
+    record = database.get_search_history(history_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"History not found: {history_id}")
+    return record
+
+
+@app.delete("/api/search/history/{history_id}")
+async def delete_search_history(history_id: int) -> dict:
+    if not database.delete_search_history(history_id):
+        raise HTTPException(status_code=404, detail=f"History not found: {history_id}")
+    return {"status": "ok"}
+
+
+@app.delete("/api/search/history")
+async def clear_search_history() -> dict:
+    database.clear_search_history()
+    return {"status": "ok"}
 
 
 @app.post("/api/download", response_model=DownloadResponse)
@@ -142,6 +174,17 @@ async def download(req: DownloadRequest, background_tasks: BackgroundTasks) -> d
 async def list_papers(arxiv_ids: Optional[str] = Query(default=None)) -> List[dict]:
     ids = arxiv_ids.split(",") if arxiv_ids else None
     return database.list_papers(ids)
+
+
+@app.get("/api/papers/{arxiv_id:path}/pdf")
+async def get_paper_pdf(arxiv_id: str) -> FileResponse:
+    paper = database.get_paper(arxiv_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail=f"Paper not found: {arxiv_id}")
+    path = Path(paper.get("local_pdf_path") or (settings.papers_dir / f"{arxiv_id}.pdf"))
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"PDF not found: {arxiv_id}")
+    return FileResponse(path, media_type="application/pdf")
 
 
 @app.get("/api/llm/presets", response_model=List[LLMPreset])
@@ -192,7 +235,7 @@ async def analyze_paper(
     arxiv_id: str, req: AnalyzeRequest, background_tasks: BackgroundTasks
 ) -> dict:
     if database.get_paper(arxiv_id) is None:
-        raise HTTPException(status_code=404, detail=f"Paper not found: {arxiv_id}")
+        raise HTTPException(status_code=404, detail=f"该论文尚未下载，请先下载后再分析: {arxiv_id}")
     if not _is_downloaded(arxiv_id):
         raise HTTPException(
             status_code=409, detail=f"论文尚未下载，请先下载: {arxiv_id}"

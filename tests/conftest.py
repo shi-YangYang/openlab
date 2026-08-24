@@ -29,6 +29,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "papers_dir", papers_dir)
     monkeypatch.setattr(config.settings, "db_path", data_dir / "openlab.db")
     monkeypatch.setattr(config.settings, "arxiv_request_interval", 0.0)
+    monkeypatch.setattr(config.settings, "download_retry_delay", 0.0)
     with TestClient(app) as c:
         yield c
 

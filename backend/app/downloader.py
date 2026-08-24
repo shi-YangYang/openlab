@@ -1,4 +1,5 @@
 """PDF download and background job execution."""
+import asyncio
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -68,7 +69,9 @@ async def run_download_job(papers: List[Dict[str, Any]]) -> None:
                 database.set_download_progress(_id, progress)
 
             try:
-                path = await download_pdf(arxiv_id, pdf_url, client, on_progress=on_progress)
+                path = await _download_with_retry(
+                    arxiv_id, pdf_url, client, on_progress=on_progress
+                )
                 database.set_status(arxiv_id, "downloaded", str(path))
                 database.set_download_progress(arxiv_id, 100)
             except Exception:
@@ -76,3 +79,26 @@ async def run_download_job(papers: List[Dict[str, Any]]) -> None:
                 database.set_download_progress(arxiv_id, 0)
     finally:
         await client.aclose()
+
+
+async def _download_with_retry(
+    arxiv_id: str,
+    pdf_url: str,
+    client: httpx.AsyncClient,
+    on_progress: Optional[Callable[[int], Awaitable[None]]] = None,
+) -> Path:
+    """Download a PDF, retrying transient failures up to ``download_max_retries``.
+
+    A short delay (``download_retry_delay``) is inserted between attempts.
+    Raises the last error if every attempt fails.
+    """
+    max_retries = settings.download_max_retries
+    last_error: Optional[Exception] = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await download_pdf(arxiv_id, pdf_url, client, on_progress=on_progress)
+        except Exception as exc:  # noqa: BLE001 - retry any download error
+            last_error = exc
+            if attempt < max_retries:
+                await asyncio.sleep(settings.download_retry_delay)
+    raise last_error  # type: ignore[misc]

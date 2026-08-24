@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import {
   Alert,
   Button,
@@ -27,6 +28,18 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
   running: { color: 'processing', label: '分析中' },
   done: { color: 'success', label: '已完成' },
   failed: { color: 'error', label: '失败' },
+}
+
+const TAG_STYLE: CSSProperties = {
+  whiteSpace: 'normal',
+  wordBreak: 'break-word',
+  height: 'auto',
+  lineHeight: 1.6,
+}
+
+const LONG_TEXT_STYLE: CSSProperties = {
+  whiteSpace: 'normal',
+  wordBreak: 'break-word',
 }
 
 interface Props {
@@ -105,8 +118,8 @@ export default function AnalysisModal({ arxivId, open, onClose, onStatusChange }
       if (timerRef.current) window.clearTimeout(timerRef.current)
       poll()
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) {
-        message.warning('请先下载该论文')
+      if (e instanceof ApiError && (e.status === 409 || e.status === 404)) {
+        message.warning('该论文尚未下载，请先下载后再分析')
       } else {
         message.error(e instanceof Error ? e.message : '分析失败')
       }
@@ -138,7 +151,7 @@ export default function AnalysisModal({ arxivId, open, onClose, onStatusChange }
       footer={null}
       width={640}
     >
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 8 }}>
         <Select<AnalysisLanguage>
           value={language}
           style={{ width: 110 }}
@@ -160,6 +173,8 @@ export default function AnalysisModal({ arxivId, open, onClose, onStatusChange }
           导出
         </Button>
       </Space>
+
+      <Divider style={{ margin: '8px 0 16px' }} />
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 48 }}>
@@ -201,35 +216,47 @@ export default function AnalysisModal({ arxivId, open, onClose, onStatusChange }
             <>
               <Divider orientation="left">总结</Divider>
               <Descriptions column={1} size="small">
-                <Descriptions.Item label="研究问题">{content.summary.research_problem}</Descriptions.Item>
-                <Descriptions.Item label="方法">{content.summary.method}</Descriptions.Item>
-                <Descriptions.Item label="结论">{content.summary.conclusion}</Descriptions.Item>
+                <Descriptions.Item label="研究问题">
+                  <div style={LONG_TEXT_STYLE}>{content.summary.research_problem}</div>
+                </Descriptions.Item>
+                <Descriptions.Item label="方法">
+                  <div style={LONG_TEXT_STYLE}>{content.summary.method}</div>
+                </Descriptions.Item>
+                <Descriptions.Item label="结论">
+                  <div style={LONG_TEXT_STYLE}>{content.summary.conclusion}</div>
+                </Descriptions.Item>
               </Descriptions>
               <Typography.Title level={5} style={{ marginTop: 8 }}>贡献</Typography.Title>
               <ul>{content.summary.contributions.map((x, i) => <li key={i}>{x}</li>)}</ul>
 
               <Divider orientation="left">实验与结果</Divider>
               <Descriptions column={1} size="small">
-                <Descriptions.Item label="关键结果">{content.experiments.key_results}</Descriptions.Item>
+                <Descriptions.Item label="关键结果">
+                  <div style={LONG_TEXT_STYLE}>{content.experiments.key_results}</div>
+                </Descriptions.Item>
               </Descriptions>
               <Typography.Title level={5}>数据集</Typography.Title>
-              <Space wrap>{content.experiments.datasets.map((x, i) => <Tag key={i}>{x}</Tag>)}</Space>
+              <Space wrap>{content.experiments.datasets.map((x, i) => <Tag key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
               <Typography.Title level={5}>基线</Typography.Title>
-              <Space wrap>{content.experiments.baselines.map((x, i) => <Tag key={i}>{x}</Tag>)}</Space>
+              <Space wrap>{content.experiments.baselines.map((x, i) => <Tag key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
               <Typography.Title level={5}>评测指标</Typography.Title>
-              <Space wrap>{content.experiments.metrics.map((x, i) => <Tag key={i}>{x}</Tag>)}</Space>
+              <Space wrap>{content.experiments.metrics.map((x, i) => <Tag key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
 
               <Divider orientation="left">局限与展望</Divider>
               <Descriptions column={1} size="small">
-                <Descriptions.Item label="局限性">{content.limitations}</Descriptions.Item>
-                <Descriptions.Item label="未来工作">{content.future_work}</Descriptions.Item>
+                <Descriptions.Item label="局限性">
+                  <div style={LONG_TEXT_STYLE}>{content.limitations}</div>
+                </Descriptions.Item>
+                <Descriptions.Item label="未来工作">
+                  <div style={LONG_TEXT_STYLE}>{content.future_work}</div>
+                </Descriptions.Item>
               </Descriptions>
 
               <Divider orientation="left">关键词 / 标签</Divider>
               <Typography.Title level={5}>关键词</Typography.Title>
-              <Space wrap>{content.keywords.map((x, i) => <Tag color="blue" key={i}>{x}</Tag>)}</Space>
+              <Space wrap>{content.keywords.map((x, i) => <Tag color="blue" key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
               <Typography.Title level={5}>标签</Typography.Title>
-              <Space wrap>{content.tags.map((x, i) => <Tag color="green" key={i}>{x}</Tag>)}</Space>
+              <Space wrap>{content.tags.map((x, i) => <Tag color="green" key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
             </>
           )}
         </>

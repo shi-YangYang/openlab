@@ -18,7 +18,6 @@ export interface PaperRecord extends Paper {
 
 export interface SearchBase {
   max_results: number
-  category?: string
   date_from?: string
   date_to?: string
 }
@@ -39,6 +38,22 @@ export interface TopicSearchResult {
 export interface DownloadResult {
   accepted: string[]
   skipped: string[]
+}
+
+export interface SearchHistoryItem {
+  id: number
+  query: string
+  mode: string
+  paper_count: number
+  created_at?: string
+}
+
+export interface SearchHistoryDetail {
+  id: number
+  query: string
+  mode: string
+  papers: Paper[]
+  created_at?: string
 }
 
 export interface LlmPreset {

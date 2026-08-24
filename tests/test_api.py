@@ -103,6 +103,45 @@ def test_download_failure_marks_failed(client, monkeypatch):
     assert records[0]["status"] == "failed"
 
 
+def test_download_retries_then_succeeds(client, monkeypatch):
+    attempts = {"n": 0}
+
+    async def flaky_download_pdf(arxiv_id, pdf_url, client, on_progress=None):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise RuntimeError("transient")
+        settings.papers_dir.mkdir(parents=True, exist_ok=True)
+        path = settings.papers_dir / f"{arxiv_id}.pdf"
+        path.write_bytes(b"%PDF-1.4 fake")
+        if on_progress is not None:
+            await on_progress(100)
+        return path
+
+    monkeypatch.setattr(downloader, "download_pdf", flaky_download_pdf)
+
+    resp = client.post("/api/download", json={"papers": [make_paper("1706.03762")]})
+    assert resp.status_code == 200
+    records = client.get("/api/papers", params={"arxiv_ids": "1706.03762"}).json()
+    assert records[0]["status"] == "downloaded"
+    assert attempts["n"] == 3
+
+
+def test_download_retries_exhausted(client, monkeypatch):
+    attempts = {"n": 0}
+
+    async def always_fail(arxiv_id, pdf_url, client, on_progress=None):
+        attempts["n"] += 1
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(downloader, "download_pdf", always_fail)
+
+    resp = client.post("/api/download", json={"papers": [make_paper("9999.9999")]})
+    assert resp.status_code == 200
+    records = client.get("/api/papers", params={"arxiv_ids": "9999.9999"}).json()
+    assert records[0]["status"] == "failed"
+    assert attempts["n"] == config.settings.download_max_retries + 1
+
+
 def test_api_key_default_empty(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     assert Settings().llm_api_key == ""

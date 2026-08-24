@@ -8,7 +8,6 @@ export interface SearchFormValues {
   mode: SearchMode
   query: string
   max_results: number
-  category?: string
   date_range?: [Dayjs, Dayjs] | null
 }
 
@@ -53,9 +52,6 @@ export default function SearchForm({ loading, onSubmit }: Props) {
       <Space wrap align="start">
         <Form.Item name="max_results" label="返回数量">
           <InputNumber min={1} max={100} style={{ width: 120 }} />
-        </Form.Item>
-        <Form.Item name="category" label="分类（如 cs.AI）">
-          <Input placeholder="cs.AI" allowClear style={{ width: 180 }} />
         </Form.Item>
         <Form.Item name="date_range" label="日期范围">
           <DatePicker.RangePicker />

@@ -7,6 +7,8 @@ import type {
   Paper,
   PaperRecord,
   ReviewRecord,
+  SearchHistoryDetail,
+  SearchHistoryItem,
   SearchParams,
   TopicSearchParams,
   TopicSearchResult,
@@ -67,6 +69,13 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
+  if (!res.ok) {
+    await throwForStatus(res)
+  }
+}
+
 export async function searchPapers(params: SearchParams): Promise<Paper[]> {
   return post<Paper[]>('/search', params)
 }
@@ -86,6 +95,22 @@ export async function listPapers(arxivIds?: string[]): Promise<PaperRecord[]> {
     throw new Error(await res.text())
   }
   return res.json()
+}
+
+export async function listSearchHistory(): Promise<SearchHistoryItem[]> {
+  return get<SearchHistoryItem[]>('/search/history')
+}
+
+export async function getSearchHistory(id: number): Promise<SearchHistoryDetail> {
+  return get<SearchHistoryDetail>(`/search/history/${id}`)
+}
+
+export async function deleteSearchHistory(id: number): Promise<void> {
+  return del(`/search/history/${id}`)
+}
+
+export async function clearSearchHistory(): Promise<void> {
+  return del('/search/history')
 }
 
 export async function getLlmPresets(): Promise<LlmPreset[]> {

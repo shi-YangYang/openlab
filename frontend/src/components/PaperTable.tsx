@@ -1,6 +1,6 @@
-import { Button, Progress, Table, Tag, Typography } from 'antd'
+import { Button, Progress, Space, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import { FileSearchOutlined } from '@ant-design/icons'
+import { FilePdfOutlined, FileSearchOutlined } from '@ant-design/icons'
 import type { AnalysisStatusInfo, Paper } from '../types'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
@@ -142,16 +142,33 @@ export default function PaperTable({
     columns.push({
       title: '操作',
       key: 'actions',
-      width: 90,
-      render: (_: unknown, r: Paper) => (
-        <Button
-          size="small"
-          icon={<FileSearchOutlined />}
-          onClick={() => onAnalyze(r.arxiv_id)}
-        >
-          分析
-        </Button>
-      ),
+      width: 200,
+      render: (_: unknown, r: Paper) => {
+        const downloaded = statusMap[r.arxiv_id] === 'downloaded'
+        return (
+          <Space size={4}>
+            <Button
+              size="small"
+              icon={<FileSearchOutlined />}
+              onClick={() => onAnalyze(r.arxiv_id)}
+            >
+              分析
+            </Button>
+            {downloaded && (
+              <Button
+                size="small"
+                type="link"
+                icon={<FilePdfOutlined />}
+                href={`/api/papers/${r.arxiv_id}/pdf`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                查看论文
+              </Button>
+            )}
+          </Space>
+        )
+      },
     })
   }
 

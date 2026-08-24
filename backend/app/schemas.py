@@ -43,6 +43,22 @@ class TopicSearchResponse(BaseModel):
     papers: List[Paper]
 
 
+class SearchHistoryItem(BaseModel):
+    id: int
+    query: str
+    mode: str
+    paper_count: int
+    created_at: Optional[str] = None
+
+
+class SearchHistoryDetail(BaseModel):
+    id: int
+    query: str
+    mode: str
+    papers: List[Paper]
+    created_at: Optional[str] = None
+
+
 class DownloadRequest(BaseModel):
     papers: List[Paper]
 

@@ -50,6 +50,15 @@ class Settings:
         self.arxiv_request_interval: float = _get_float("ARXIV_REQUEST_INTERVAL", 3.0)
         self.arxiv_max_retries: int = _get_int("ARXIV_MAX_RETRIES", 3)
 
+        # PDF download retry.
+        self.download_max_retries: int = _get_int("DOWNLOAD_MAX_RETRIES", 3)
+        self.download_retry_delay: float = _get_float("DOWNLOAD_RETRY_DELAY", 2.0)
+
+        # Search history: max number of papers kept per snapshot.
+        self.search_history_snapshot_limit: int = _get_int(
+            "SEARCH_HISTORY_SNAPSHOT_LIMIT", 50
+        )
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.papers_dir.mkdir(parents=True, exist_ok=True)
