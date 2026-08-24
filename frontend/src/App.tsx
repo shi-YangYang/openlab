@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { App as AntApp, Card, Layout, Menu, Tabs, Typography } from 'antd'
 import {
   BookOutlined,
+  CloudServerOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
   SearchOutlined,
@@ -13,6 +14,7 @@ import PaperWorkspace from './components/PaperWorkspace'
 import SearchHistoryList from './components/SearchHistoryList'
 import InnovationHistoryList from './components/InnovationHistoryList'
 import LlmConfigForm from './components/LlmConfigForm'
+import ServersPage from './components/ServersPage'
 import AnalysisModal from './components/AnalysisModal'
 import ReviewModal from './components/ReviewModal'
 import InnovationModal from './components/InnovationModal'
@@ -23,12 +25,13 @@ import type { AnalysisRecord, Paper, SearchHistoryDetail } from './types'
 
 const { Header, Content } = Layout
 
-type PageKey = 'search' | 'library' | 'history' | 'settings'
+type PageKey = 'search' | 'library' | 'history' | 'servers' | 'settings'
 
 const MENU_ITEMS: MenuProps['items'] = [
   { key: 'search', icon: <SearchOutlined />, label: '搜索' },
   { key: 'library', icon: <BookOutlined />, label: '论文库' },
   { key: 'history', icon: <HistoryOutlined />, label: '历史' },
+  { key: 'servers', icon: <CloudServerOutlined />, label: '服务器' },
   { key: 'settings', icon: <SettingOutlined />, label: '设置' },
 ]
 
@@ -183,6 +186,8 @@ export default function App() {
             ]}
           />
         )}
+
+        {page === 'servers' && <ServersPage />}
 
         {page === 'settings' && (
           <Card title="LLM 配置">

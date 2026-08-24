@@ -6,3 +6,4 @@ pydantic>=2.6
 langchain>=0.3
 langchain-openai>=0.2
 pymupdf>=1.24
+paramiko>=3.0

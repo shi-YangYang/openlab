@@ -1,6 +1,7 @@
 import type {
   AnalysisLanguage,
   AnalysisRecord,
+  CloneResult,
   DownloadResult,
   ExperimentRecord,
   InnovationHistoryItem,
@@ -8,14 +9,19 @@ import type {
   LlmConfig,
   LlmPreset,
   LlmTestResult,
+  MonitorResult,
   Paper,
   PaperRecord,
   ReviewRecord,
   SearchHistoryDetail,
   SearchHistoryItem,
   SearchParams,
+  Server,
+  ServerInput,
+  ServerTestResult,
   TopicSearchParams,
   TopicSearchResult,
+  UploadResult,
 } from './types'
 
 const BASE = '/api'
@@ -229,4 +235,42 @@ export async function exportExperimentMarkdown(id: number): Promise<string> {
   const res = await fetch(`${BASE}/experiments/${id}/export`)
   if (!res.ok) throw new Error(await res.text())
   return res.text()
+}
+
+export async function listServers(): Promise<Server[]> {
+  return get<Server[]>('/servers')
+}
+
+export async function createServer(input: ServerInput): Promise<Server> {
+  return post<Server>('/servers', input)
+}
+
+export async function updateServer(id: string, input: ServerInput): Promise<Server> {
+  return put<Server>(`/servers/${id}`, input)
+}
+
+export async function deleteServer(id: string): Promise<void> {
+  return del(`/servers/${id}`)
+}
+
+export async function testServer(id: string): Promise<ServerTestResult> {
+  return post<ServerTestResult>(`/servers/${id}/test`, {})
+}
+
+export async function deployClone(
+  id: string,
+  body: { repo_url: string; target_dir: string },
+): Promise<CloneResult> {
+  return post<CloneResult>(`/servers/${id}/deploy/clone`, body)
+}
+
+export async function deployUpload(
+  id: string,
+  body: { local_path: string; remote_path: string },
+): Promise<UploadResult> {
+  return post<UploadResult>(`/servers/${id}/deploy/upload`, body)
+}
+
+export async function monitorServer(id: string): Promise<MonitorResult> {
+  return post<MonitorResult>(`/servers/${id}/monitor`, {})
 }

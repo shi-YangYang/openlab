@@ -237,3 +237,59 @@ class ExperimentRequest(BaseModel):
     arxiv_ids: List[str] = Field(default_factory=list)
     count: int = Field(default=1)
     language: str = Field(default="zh", pattern="^(zh|en)$")
+
+
+class ServerInput(BaseModel):
+    name: str
+    host: str
+    username: str
+    port: int = Field(default=22, ge=1, le=65535)
+    auth_type: str = Field(default="password", pattern="^(password|key)$")
+    password: Optional[str] = None
+    private_key: Optional[str] = None
+
+
+class ServerUpdate(BaseModel):
+    name: Optional[str] = None
+    host: Optional[str] = None
+    username: Optional[str] = None
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    auth_type: Optional[str] = Field(default=None, pattern="^(password|key)$")
+    password: Optional[str] = None
+    private_key: Optional[str] = None
+
+
+class ServerOutput(BaseModel):
+    id: str
+    name: str
+    host: str
+    username: str
+    port: int
+    auth_type: str
+    has_password: bool
+    has_key: bool
+
+
+class TestConnectionResponse(BaseModel):
+    ok: bool
+    message: str
+    latency_ms: Optional[int] = None
+
+
+class CloneRequest(BaseModel):
+    repo_url: str
+    target_dir: str
+
+
+class CloneResponse(BaseModel):
+    output: str
+
+
+class UploadRequest(BaseModel):
+    local_path: str
+    remote_path: str
+
+
+class UploadResponse(BaseModel):
+    message: str
+    files: int

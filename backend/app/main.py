@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import shlex
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,7 +10,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
-from . import analysis, database, downloader, experiment, export, innovation
+from . import analysis, database, downloader, experiment, export, innovation, servers, ssh
 from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
@@ -21,6 +22,8 @@ from .schemas import (
     AnalyzeBatchResponse,
     AnalyzeRequest,
     AnalyzeResponse,
+    CloneRequest,
+    CloneResponse,
     DownloadRequest,
     DownloadResponse,
     ExperimentRecord,
@@ -40,8 +43,14 @@ from .schemas import (
     SearchHistoryDetail,
     SearchHistoryItem,
     SearchRequest,
+    ServerInput,
+    ServerOutput,
+    ServerUpdate,
+    TestConnectionResponse,
     TopicSearchRequest,
     TopicSearchResponse,
+    UploadRequest,
+    UploadResponse,
 )
 
 
@@ -557,3 +566,84 @@ async def export_experiment(experiment_id: int) -> Response:
             "Content-Disposition": f'attachment; filename="experiments-{experiment_id}.md"'
         },
     )
+
+
+MONITOR_COMMANDS = {
+    "nvidia-smi": "nvidia-smi",
+    "free -h": "free -h",
+    "df -h": "df -h",
+    "uptime": "uptime",
+    "ps aux --sort=-%mem | head": "ps aux --sort=-%mem | head",
+}
+
+
+def _require_server(server_id: str) -> dict:
+    server = servers.get_server(server_id)
+    if server is None:
+        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+    return server
+
+
+@app.get("/api/servers", response_model=List[ServerOutput])
+async def list_servers() -> List[dict]:
+    return [servers.redact(s) for s in servers.list_servers()]
+
+
+@app.post("/api/servers", response_model=ServerOutput)
+async def create_server(req: ServerInput) -> dict:
+    return servers.redact(servers.add_server(req.model_dump()))
+
+
+@app.put("/api/servers/{server_id}", response_model=ServerOutput)
+async def update_server(server_id: str, req: ServerUpdate) -> dict:
+    updated = servers.update_server(server_id, req.model_dump(exclude_unset=True))
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+    return servers.redact(updated)
+
+
+@app.delete("/api/servers/{server_id}")
+async def delete_server(server_id: str) -> dict:
+    if not servers.delete_server(server_id):
+        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+    return {"status": "ok"}
+
+
+@app.post("/api/servers/{server_id}/test", response_model=TestConnectionResponse)
+async def test_server(server_id: str) -> dict:
+    server = _require_server(server_id)
+    return ssh.test_connection(server)
+
+
+@app.post("/api/servers/{server_id}/deploy/clone", response_model=CloneResponse)
+async def deploy_clone(server_id: str, req: CloneRequest) -> dict:
+    server = _require_server(server_id)
+    if not req.repo_url.strip():
+        raise HTTPException(status_code=400, detail="repo_url must not be empty")
+    command = f"git clone {shlex.quote(req.repo_url)} {shlex.quote(req.target_dir)}"
+    try:
+        output = ssh.exec_command(server, command)
+    except ssh.SSHError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"output": output}
+
+
+@app.post("/api/servers/{server_id}/deploy/upload", response_model=UploadResponse)
+async def deploy_upload(server_id: str, req: UploadRequest) -> dict:
+    server = _require_server(server_id)
+    try:
+        return ssh.upload(server, req.local_path, req.remote_path)
+    except ssh.SSHError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post("/api/servers/{server_id}/monitor")
+async def monitor_server(server_id: str) -> dict:
+    server = _require_server(server_id)
+    result: dict = {}
+    for name, command in MONITOR_COMMANDS.items():
+        try:
+            result[name] = ssh.exec_command(server, command)
+        except ssh.SSHError as exc:
+            result[name] = f"执行失败: {exc}"
+    return result

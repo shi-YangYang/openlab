@@ -184,3 +184,43 @@ export interface ExperimentRecord {
   progress?: number
   created_at?: string
 }
+
+export type ServerAuthType = 'password' | 'key'
+
+export interface Server {
+  id: string
+  name: string
+  host: string
+  username: string
+  port: number
+  auth_type: ServerAuthType
+  has_password: boolean
+  has_key: boolean
+}
+
+export interface ServerInput {
+  name: string
+  host: string
+  username: string
+  port?: number
+  auth_type?: ServerAuthType
+  password?: string
+  private_key?: string
+}
+
+export interface ServerTestResult {
+  ok: boolean
+  message: string
+  latency_ms?: number | null
+}
+
+export interface CloneResult {
+  output: string
+}
+
+export interface UploadResult {
+  message: string
+  files: number
+}
+
+export type MonitorResult = Record<string, string>
