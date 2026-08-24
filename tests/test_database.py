@@ -67,3 +67,139 @@ def test_no_api_key_column_in_schema(tmp_path, monkeypatch):
                      "categories", "published", "pdf_url", "local_pdf_path",
                      "status", "created_at"):
         assert required in columns
+
+
+def test_migration_adds_error_column_without_data_loss(tmp_path, monkeypatch):
+    import sqlite3
+
+    data_dir = tmp_path / "data"
+    papers_dir = data_dir / "papers"
+    db_path = data_dir / "openlab.db"
+    monkeypatch.setattr(config.settings, "data_dir", data_dir)
+    monkeypatch.setattr(config.settings, "papers_dir", papers_dir)
+    monkeypatch.setattr(config.settings, "db_path", db_path)
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """
+        CREATE TABLE analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arxiv_id TEXT UNIQUE NOT NULL,
+            content TEXT,
+            language TEXT DEFAULT 'zh',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arxiv_ids TEXT,
+            content TEXT,
+            language TEXT DEFAULT 'zh',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        INSERT INTO analyses (arxiv_id, content, language, status)
+            VALUES ('1', '{}', 'zh', 'done');
+        INSERT INTO reviews (arxiv_ids, content, language, status)
+            VALUES ('["1"]', '{}', 'zh', 'done');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    database.init_db()
+
+    conn = database._connect()
+    try:
+        for table in ("analyses", "reviews"):
+            cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+            assert "error" in cols
+        row = conn.execute("SELECT * FROM analyses WHERE arxiv_id = '1'").fetchone()
+        assert row["status"] == "done"
+        assert row["content"] == "{}"
+        review = conn.execute("SELECT * FROM reviews WHERE id = 1").fetchone()
+        assert review["status"] == "done"
+        assert review["arxiv_ids"] == '["1"]'
+    finally:
+        conn.close()
+
+
+def test_migration_adds_progress_message_columns_without_data_loss(tmp_path, monkeypatch):
+    import sqlite3
+
+    data_dir = tmp_path / "data"
+    papers_dir = data_dir / "papers"
+    db_path = data_dir / "openlab.db"
+    monkeypatch.setattr(config.settings, "data_dir", data_dir)
+    monkeypatch.setattr(config.settings, "papers_dir", papers_dir)
+    monkeypatch.setattr(config.settings, "db_path", db_path)
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(
+        """
+        CREATE TABLE papers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arxiv_id TEXT UNIQUE NOT NULL,
+            title TEXT,
+            authors TEXT,
+            abstract TEXT,
+            categories TEXT,
+            published TEXT,
+            pdf_url TEXT,
+            local_pdf_path TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE analyses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arxiv_id TEXT UNIQUE NOT NULL,
+            content TEXT,
+            language TEXT DEFAULT 'zh',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arxiv_ids TEXT,
+            content TEXT,
+            language TEXT DEFAULT 'zh',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        INSERT INTO papers (arxiv_id, title, status) VALUES ('1', 'Old paper', 'downloaded');
+        INSERT INTO analyses (arxiv_id, content, language, status)
+            VALUES ('1', '{}', 'zh', 'done');
+        INSERT INTO reviews (arxiv_ids, content, language, status)
+            VALUES ('["1"]', '{}', 'zh', 'done');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    database.init_db()
+
+    conn = database._connect()
+    try:
+        papers_cols = [r["name"] for r in conn.execute("PRAGMA table_info(papers)").fetchall()]
+        analyses_cols = [r["name"] for r in conn.execute("PRAGMA table_info(analyses)").fetchall()]
+        reviews_cols = [r["name"] for r in conn.execute("PRAGMA table_info(reviews)").fetchall()]
+        assert "progress" in papers_cols
+        assert "progress" in analyses_cols
+        assert "message" in analyses_cols
+        assert "progress" in reviews_cols
+
+        paper = conn.execute("SELECT * FROM papers WHERE arxiv_id = '1'").fetchone()
+        assert paper["status"] == "downloaded"
+        assert paper["progress"] == 0
+        analysis = conn.execute("SELECT * FROM analyses WHERE arxiv_id = '1'").fetchone()
+        assert analysis["status"] == "done"
+        assert analysis["progress"] == 0
+        review = conn.execute("SELECT * FROM reviews WHERE id = 1").fetchone()
+        assert review["status"] == "done"
+        assert review["progress"] == 0
+    finally:
+        conn.close()

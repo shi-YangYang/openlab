@@ -63,18 +63,18 @@ uvicorn app.main:app --reload --port 8001
 # 前端
 cd ..\frontend
 npm install
-npm run dev                  # http://localhost:5173
+npm run dev                  # http://localhost:5174
 ```
 
 ## 使用
 
 ```powershell
-.\start.ps1                  # 后端 8001，前端 5173
+.\start.ps1                  # 后端 8001，前端 5174
 .\start.ps1 -Port 9000       # 自定义后端端口
 $env:OPENLAB_PORT=9000; .\start.ps1
 ```
 
-浏览器打开 http://localhost:5173。
+浏览器打开 http://localhost:5174。
 
 - **关键词搜索** — 输入检索词（如 `attention transformer`），支持分类与日期过滤；无需 LLM Key。
 - **主题搜索** — 输入研究主题，由 LLM 拆解为 arXiv 检索式；需在界面配置 LLM 平台与 API Key（或 `PUT /api/llm/config`）。

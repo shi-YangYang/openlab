@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-开发服务器默认运行在 `http://localhost:5173`，并通过 Vite 代理将 `/api` 转发到
+开发服务器默认运行在 `http://localhost:5174`，并通过 Vite 代理将 `/api` 转发到
 `http://localhost:8001`（后端）。请确保后端已启动。
 
 代理目标端口读取环境变量 `OPENLAB_PORT`（未设置时默认 8001）。使用一键启动脚本

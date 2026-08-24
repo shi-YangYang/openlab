@@ -60,11 +60,13 @@ def test_search_topic_without_api_key(client, monkeypatch):
 def test_download_and_skip_duplicate(client, monkeypatch):
     calls = {"n": 0}
 
-    async def fake_download_pdf(arxiv_id, pdf_url, client):
+    async def fake_download_pdf(arxiv_id, pdf_url, client, on_progress=None):
         calls["n"] += 1
         settings.papers_dir.mkdir(parents=True, exist_ok=True)
         path = settings.papers_dir / f"{arxiv_id}.pdf"
         path.write_bytes(b"%PDF-1.4 fake")
+        if on_progress is not None:
+            await on_progress(100)
         return path
 
     monkeypatch.setattr(downloader, "download_pdf", fake_download_pdf)
@@ -90,7 +92,7 @@ def test_download_and_skip_duplicate(client, monkeypatch):
 
 
 def test_download_failure_marks_failed(client, monkeypatch):
-    async def fail_download_pdf(arxiv_id, pdf_url, client):
+    async def fail_download_pdf(arxiv_id, pdf_url, client, on_progress=None):
         raise RuntimeError("network down")
 
     monkeypatch.setattr(downloader, "download_pdf", fail_download_pdf)
@@ -115,3 +117,47 @@ def test_health(client):
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+class _FakeStreamResponse:
+    def __init__(self, chunks, headers):
+        self._chunks = chunks
+        self.headers = headers
+
+    def raise_for_status(self):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def aiter_bytes(self):
+        for chunk in self._chunks:
+            yield chunk
+
+
+class _FakeStreamClient:
+    def __init__(self, response):
+        self._response = response
+
+    def stream(self, method, url):
+        return self._response
+
+
+async def test_download_pdf_streams_and_reports_progress(monkeypatch, tmp_path):
+    monkeypatch.setattr(config.settings, "papers_dir", tmp_path / "papers")
+    data = b"x" * 200
+    resp = _FakeStreamResponse([data[:100], data[100:]], headers={"content-length": "200"})
+    client = _FakeStreamClient(resp)
+    progress = []
+
+    async def on_progress(p):
+        progress.append(p)
+
+    path = await downloader.download_pdf("1", "http://example/pdf", client, on_progress=on_progress)
+
+    assert path.read_bytes() == data
+    assert progress[-1] == 100
+    assert progress[0] > 0

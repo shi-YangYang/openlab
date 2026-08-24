@@ -1,6 +1,7 @@
-import { Table, Tag, Typography } from 'antd'
+import { Button, Progress, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import type { Paper } from '../types'
+import { FileSearchOutlined } from '@ant-design/icons'
+import type { AnalysisStatusInfo, Paper } from '../types'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
   pending: { color: 'gold', label: '待下载' },
@@ -10,13 +11,24 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
   skipped: { color: 'default', label: '已存在' },
 }
 
+const ANALYSIS_STATUS_META: Record<string, { color: string; label: string }> = {
+  pending: { color: 'gold', label: '待分析' },
+  running: { color: 'processing', label: '分析中' },
+  done: { color: 'success', label: '已完成' },
+  failed: { color: 'error', label: '失败' },
+}
+
 interface Props {
   papers: Paper[]
   loading: boolean
   selectedIds: string[]
   onSelect: (ids: string[]) => void
   statusMap: Record<string, string>
+  downloadProgressMap?: Record<string, number>
   showStatus: boolean
+  analysisStatusMap?: Record<string, AnalysisStatusInfo>
+  showAnalysisStatus?: boolean
+  onAnalyze?: (arxivId: string) => void
 }
 
 export default function PaperTable({
@@ -25,7 +37,11 @@ export default function PaperTable({
   selectedIds,
   onSelect,
   statusMap,
+  downloadProgressMap = {},
   showStatus,
+  analysisStatusMap = {},
+  showAnalysisStatus = false,
+  onAnalyze,
 }: Props) {
   const columns: TableProps<Paper>['columns'] = [
     {
@@ -73,13 +89,69 @@ export default function PaperTable({
     columns.push({
       title: '状态',
       key: 'status',
-      width: 110,
+      width: 140,
       render: (_: unknown, r: Paper) => {
         const s = statusMap[r.arxiv_id]
         if (!s) return '-'
+        if (s === 'downloading') {
+          return (
+            <Progress
+              percent={downloadProgressMap[r.arxiv_id] ?? 0}
+              size="small"
+              style={{ width: 100 }}
+            />
+          )
+        }
         const meta = STATUS_META[s] ?? { color: 'default', label: s }
         return <Tag color={meta.color}>{meta.label}</Tag>
       },
+    })
+  }
+
+  if (showAnalysisStatus) {
+    columns.push({
+      title: '分析',
+      key: 'analysis_status',
+      width: 180,
+      render: (_: unknown, r: Paper) => {
+        const info = analysisStatusMap[r.arxiv_id]
+        if (!info) return '-'
+        if (info.status === 'running') {
+          return (
+            <div>
+              <Progress
+                percent={info.progress ?? 0}
+                size="small"
+                style={{ width: 120 }}
+              />
+              {info.message && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {info.message}
+                </Typography.Text>
+              )}
+            </div>
+          )
+        }
+        const meta = ANALYSIS_STATUS_META[info.status] ?? { color: 'default', label: info.status }
+        return <Tag color={meta.color}>{meta.label}</Tag>
+      },
+    })
+  }
+
+  if (onAnalyze) {
+    columns.push({
+      title: '操作',
+      key: 'actions',
+      width: 90,
+      render: (_: unknown, r: Paper) => (
+        <Button
+          size="small"
+          icon={<FileSearchOutlined />}
+          onClick={() => onAnalyze(r.arxiv_id)}
+        >
+          分析
+        </Button>
+      ),
     })
   }
 

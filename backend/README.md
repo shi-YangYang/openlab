@@ -76,6 +76,14 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 - `GET /api/llm/presets` — 查询 LLM 平台预设列表。
 - `GET /api/llm/config` — 查询当前生效的 LLM 配置。
 - `PUT /api/llm/config` — 保存 LLM 配置（base_url/api_key/model，写入本地非 git 文件）。
+- `POST /api/analyze/{arxiv_id}` — 单篇论文结构化分析（后台任务）。
+- `POST /api/analyze/batch` — 批量分析（异步逐篇）。
+- `POST /api/review` — 多篇对比综述。
+- `GET /api/analyses` — 查询分析结果列表（支持 `?arxiv_ids=` 过滤）。
+- `GET /api/analyses/{arxiv_id}` — 查询单篇分析结果。
+- `GET /api/analyses/{arxiv_id}/export` — 导出单篇分析 Markdown。
+- `GET /api/reviews/{id}` — 查询综述结果。
+- `GET /api/reviews/{id}/export` — 导出综述 Markdown。
 
 ## 测试
 

@@ -122,7 +122,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $Root "node_modules"))) {
 # --- 7. 合并输出启动前后端 ---
 Write-Step "启动前后端（按 Ctrl+C 停止）..."
 Write-Host "  后端: http://localhost:$Port  (health: /api/health)" -ForegroundColor DarkGray
-Write-Host "  前端: http://localhost:5173" -ForegroundColor DarkGray
+Write-Host "  前端: http://localhost:5174" -ForegroundColor DarkGray
 Push-Location $Root
 try {
     npm run dev

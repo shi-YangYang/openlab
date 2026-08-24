@@ -18,6 +18,7 @@ class PaperRecord(Paper):
     id: Optional[int] = None
     local_pdf_path: Optional[str] = None
     status: Optional[str] = None
+    progress: Optional[int] = 0
     created_at: Optional[str] = None
 
 
@@ -67,3 +68,81 @@ class LLMConfigUpdate(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     model: Optional[str] = None
+
+
+class AnalysisSummary(BaseModel):
+    research_problem: str = ""
+    method: str = ""
+    contributions: List[str] = Field(default_factory=list)
+    conclusion: str = ""
+
+
+class AnalysisExperiments(BaseModel):
+    datasets: List[str] = Field(default_factory=list)
+    baselines: List[str] = Field(default_factory=list)
+    metrics: List[str] = Field(default_factory=list)
+    key_results: str = ""
+
+
+class PaperAnalysis(BaseModel):
+    summary: AnalysisSummary
+    experiments: AnalysisExperiments
+    limitations: str = ""
+    future_work: str = ""
+    keywords: List[str] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+
+
+class ReviewResult(BaseModel):
+    common_themes: List[str] = Field(default_factory=list)
+    differences: List[str] = Field(default_factory=list)
+    research_gaps: List[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class AnalyzeRequest(BaseModel):
+    language: str = Field(default="zh", pattern="^(zh|en)$")
+
+
+class AnalyzeBatchRequest(BaseModel):
+    arxiv_ids: List[str] = Field(default_factory=list)
+    language: str = Field(default="zh", pattern="^(zh|en)$")
+
+
+class ReviewRequest(BaseModel):
+    arxiv_ids: List[str] = Field(default_factory=list)
+    language: str = Field(default="zh", pattern="^(zh|en)$")
+
+
+class AnalyzeResponse(BaseModel):
+    arxiv_id: str
+    status: str
+
+
+class AnalyzeBatchResponse(BaseModel):
+    arxiv_ids: List[str]
+    status: str
+
+
+class AnalysisRecord(BaseModel):
+    id: Optional[int] = None
+    arxiv_id: str
+    content: Optional[PaperAnalysis] = None
+    language: str = "zh"
+    status: str = "pending"
+    error: Optional[str] = None
+    progress: Optional[int] = 0
+    message: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ReviewRecord(BaseModel):
+    id: Optional[int] = None
+    arxiv_ids: List[str] = Field(default_factory=list)
+    content: Optional[ReviewResult] = None
+    language: str = "zh"
+    status: str = "pending"
+    error: Optional[str] = None
+    progress: Optional[int] = 0
+    created_at: Optional[str] = None

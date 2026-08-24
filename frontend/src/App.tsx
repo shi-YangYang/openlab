@@ -1,11 +1,13 @@
 import { useCallback, useState } from 'react'
 import { Alert, App as AntApp, Button, Card, Col, Row, Space, Tag, Typography } from 'antd'
-import { DownloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, FileSearchOutlined, TeamOutlined } from '@ant-design/icons'
 import SearchForm, { SearchFormValues } from './components/SearchForm'
 import PaperTable from './components/PaperTable'
 import LlmConfigForm from './components/LlmConfigForm'
-import { downloadPapers, listPapers, searchPapers, searchTopic } from './api'
-import type { Paper } from './types'
+import AnalysisModal from './components/AnalysisModal'
+import ReviewModal from './components/ReviewModal'
+import { analyzeBatch, ApiError, downloadPapers, listAnalyses, listPapers, searchPapers, searchTopic } from './api'
+import type { AnalysisRecord, AnalysisStatusInfo, Paper } from './types'
 
 export default function App() {
   const { message } = AntApp.useApp()
@@ -14,14 +16,26 @@ export default function App() {
   const [downloading, setDownloading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [statusMap, setStatusMap] = useState<Record<string, string>>({})
+  const [downloadProgressMap, setDownloadProgressMap] = useState<Record<string, number>>({})
   const [llmQuery, setLlmQuery] = useState<string | null>(null)
+  const [analysisStatusMap, setAnalysisStatusMap] = useState<Record<string, AnalysisStatusInfo>>({})
+  const [analyzingBatch, setAnalyzingBatch] = useState(false)
+  const [analyzeTarget, setAnalyzeTarget] = useState<string | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [reviewIds, setReviewIds] = useState<string[]>([])
+  const [reviewOpen, setReviewOpen] = useState(false)
 
   const refreshStatuses = useCallback(async (ids: string[]) => {
     try {
       const records = await listPapers(ids)
       const map: Record<string, string> = {}
-      for (const r of records) map[r.arxiv_id] = r.status ?? ''
+      const prog: Record<string, number> = {}
+      for (const r of records) {
+        map[r.arxiv_id] = r.status ?? ''
+        if (r.progress != null) prog[r.arxiv_id] = r.progress
+      }
       setStatusMap((prev) => ({ ...prev, ...map }))
+      setDownloadProgressMap((prev) => ({ ...prev, ...prog }))
     } catch {
       // ignore status refresh errors
     }
@@ -33,10 +47,49 @@ export default function App() {
       try {
         const records = await listPapers(ids)
         const map: Record<string, string> = {}
-        for (const r of records) map[r.arxiv_id] = r.status ?? ''
+        const prog: Record<string, number> = {}
+        for (const r of records) {
+          map[r.arxiv_id] = r.status ?? ''
+          if (r.progress != null) prog[r.arxiv_id] = r.progress
+        }
         setStatusMap((prev) => ({ ...prev, ...map }))
+        setDownloadProgressMap((prev) => ({ ...prev, ...prog }))
         const terminal = records.every(
           (r) => r.status === 'downloaded' || r.status === 'failed',
+        )
+        if (terminal) return
+      } catch {
+        // ignore transient errors and keep polling
+      }
+      await new Promise((res) => setTimeout(res, 1500))
+    }
+  }, [])
+
+  const refreshAnalysisStatuses = useCallback(async (ids: string[]) => {
+    try {
+      const records = await listAnalyses(ids)
+      const map: Record<string, AnalysisStatusInfo> = {}
+      for (const r of records) {
+        map[r.arxiv_id] = { status: r.status ?? '', progress: r.progress, message: r.message }
+      }
+      setAnalysisStatusMap((prev) => ({ ...prev, ...map }))
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const pollAnalysisStatuses = useCallback(async (ids: string[]) => {
+    const deadline = Date.now() + 600000
+    while (Date.now() < deadline) {
+      try {
+        const records = await listAnalyses(ids)
+        const map: Record<string, AnalysisStatusInfo> = {}
+        for (const r of records) {
+          map[r.arxiv_id] = { status: r.status ?? '', progress: r.progress, message: r.message }
+        }
+        setAnalysisStatusMap((prev) => ({ ...prev, ...map }))
+        const terminal = records.every(
+          (r) => r.status === 'done' || r.status === 'failed',
         )
         if (terminal) return
       } catch {
@@ -66,7 +119,10 @@ export default function App() {
       }
       setPapers(result)
       setSelectedIds([])
-      if (result.length) void refreshStatuses(result.map((p) => p.arxiv_id))
+      if (result.length) {
+        void refreshStatuses(result.map((p) => p.arxiv_id))
+        void refreshAnalysisStatuses(result.map((p) => p.arxiv_id))
+      }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '搜索失败')
     } finally {
@@ -98,6 +154,56 @@ export default function App() {
     }
   }
 
+  const handleAnalyzeOne = (arxivId: string) => {
+    setAnalyzeTarget(arxivId)
+    setDrawerOpen(true)
+  }
+
+  const handleBatchAnalyze = async () => {
+    const targets = selectedIds.length
+      ? papers.filter((p) => selectedIds.includes(p.arxiv_id))
+      : papers
+    if (!targets.length) {
+      message.warning('没有可分析的论文')
+      return
+    }
+    setAnalyzingBatch(true)
+    try {
+      const ids = targets.map((p) => p.arxiv_id)
+      await analyzeBatch(ids, 'zh')
+      const next: Record<string, AnalysisStatusInfo> = {}
+      for (const id of ids) next[id] = { status: 'pending', progress: 0 }
+      setAnalysisStatusMap((prev) => ({ ...prev, ...next }))
+      message.info(`已提交 ${ids.length} 篇论文分析`)
+      void pollAnalysisStatuses(ids)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        message.warning('请先下载所选论文')
+      } else {
+        message.error(e instanceof Error ? e.message : '分析失败')
+      }
+    } finally {
+      setAnalyzingBatch(false)
+    }
+  }
+
+  const handleOpenReview = () => {
+    const targets = selectedIds.length ? selectedIds : papers.map((p) => p.arxiv_id)
+    if (targets.length < 2) {
+      message.warning('请选择至少两篇论文进行对比综述')
+      return
+    }
+    setReviewIds(targets)
+    setReviewOpen(true)
+  }
+
+  const handleAnalysisStatus = useCallback((rec: AnalysisRecord) => {
+    setAnalysisStatusMap((prev) => ({
+      ...prev,
+      [rec.arxiv_id]: { status: rec.status ?? '', progress: rec.progress, message: rec.message },
+    }))
+  }, [])
+
   const showStatus = Object.keys(statusMap).length > 0
 
   return (
@@ -127,9 +233,9 @@ export default function App() {
       <Card
         title={`搜索结果（${papers.length}）`}
         extra={
-          <Space>
+          <Space wrap>
             {papers.length > 0 && (
-              <Tag>{selectedIds.length ? `已选 ${selectedIds.length} 篇` : '将下载全部'}</Tag>
+              <Tag>{selectedIds.length ? `已选 ${selectedIds.length} 篇` : '将作用于全部'}</Tag>
             )}
             <Button
               type="primary"
@@ -140,6 +246,21 @@ export default function App() {
             >
               {selectedIds.length ? '下载选中' : '下载全部'}
             </Button>
+            <Button
+              icon={<FileSearchOutlined />}
+              loading={analyzingBatch}
+              disabled={!papers.length}
+              onClick={handleBatchAnalyze}
+            >
+              {selectedIds.length ? '分析选中' : '分析全部'}
+            </Button>
+            <Button
+              icon={<TeamOutlined />}
+              disabled={papers.length < 2}
+              onClick={handleOpenReview}
+            >
+              对比综述
+            </Button>
           </Space>
         }
       >
@@ -149,9 +270,25 @@ export default function App() {
           selectedIds={selectedIds}
           onSelect={setSelectedIds}
           statusMap={statusMap}
+          downloadProgressMap={downloadProgressMap}
           showStatus={showStatus}
+          analysisStatusMap={analysisStatusMap}
+          showAnalysisStatus={Object.keys(analysisStatusMap).length > 0}
+          onAnalyze={handleAnalyzeOne}
         />
       </Card>
+
+      <AnalysisModal
+        arxivId={analyzeTarget}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onStatusChange={handleAnalysisStatus}
+      />
+      <ReviewModal
+        arxivIds={reviewIds}
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+      />
     </div>
   )
 }

@@ -63,18 +63,18 @@ uvicorn app.main:app --reload --port 8001
 # Frontend
 cd ..\frontend
 npm install
-npm run dev                  # http://localhost:5173
+npm run dev                  # http://localhost:5174
 ```
 
 ## Usage
 
 ```powershell
-.\start.ps1                  # backend on 8001, frontend on 5173
+.\start.ps1                  # backend on 8001, frontend on 5174
 .\start.ps1 -Port 9000       # custom backend port
 $env:OPENLAB_PORT=9000; .\start.ps1
 ```
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:5174 in your browser.
 
 - **Keyword search** — enter a query (e.g. `attention transformer`) and filter by category and date; works without an LLM key.
 - **Topic search** — enter a research topic; the LLM decomposes it into an arXiv query. Requires configuring an LLM platform and API key in the UI (or via `PUT /api/llm/config`).

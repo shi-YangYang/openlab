@@ -74,12 +74,12 @@ openlab 科研流程的第一步：自动从 arXiv 搜索并下载相关论文�
 
 ```powershell
 cd E:\gitTools\openlab
-.\start.ps1                 # 一键启动，默认后端 8001、前端 5173
+.\start.ps1                 # 一键启动，默认后端 8001、前端 5174
 .\start.ps1 -Port 9000      # 指定后端端口
 $env:OPENLAB_PORT=9000; .\start.ps1   # 环境变量指定（-Port 优先）
 ```
 
-- 浏览器打开 http://localhost:5173。
+- 浏览器打开 http://localhost:5174。
 - 关键词搜索无需 LLM；主题搜索需先在「LLM 配置」选平台并填 API Key（或 `PUT /api/llm/config`）。
 - LLM 平台预设：OpenAI、DeepSeek、阿里云百炼、硅基流动、智谱 GLM、Moonshot Kimi（`backend/app/presets.py` 单行可扩展）。
 
