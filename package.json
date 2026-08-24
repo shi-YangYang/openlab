@@ -1,0 +1,14 @@
+{
+  "name": "openlab",
+  "private": true,
+  "version": "0.1.0",
+  "description": "openlab 科研 Agent 框架 —— 根目录脚本（concurrently 合并输出启动前后端）",
+  "scripts": {
+    "dev": "concurrently --kill-others --names backend,frontend --prefix-colors blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && .venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port %OPENLAB_PORT%",
+    "dev:frontend": "cd frontend && npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
