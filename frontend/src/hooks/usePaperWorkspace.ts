@@ -6,6 +6,7 @@ import type { AnalysisRecord, AnalysisStatusInfo, Paper } from '../types'
 interface Options {
   onAnalyzeOne?: (arxivId: string) => void
   onOpenReview?: (arxivIds: string[]) => void
+  onOpenInnovation?: (arxivIds: string[]) => void
 }
 
 export function usePaperWorkspace(options: Options = {}) {
@@ -187,6 +188,14 @@ export function usePaperWorkspace(options: Options = {}) {
     options.onOpenReview?.(targets)
   }
 
+  const handleOpenInnovation = () => {
+    if (selectedIds.length < 1) {
+      message.warning('请选择至少一篇论文生成创新点')
+      return
+    }
+    options.onOpenInnovation?.(selectedIds)
+  }
+
   const handleAnalyzeOne = (arxivId: string) => {
     options.onAnalyzeOne?.(arxivId)
   }
@@ -215,6 +224,7 @@ export function usePaperWorkspace(options: Options = {}) {
     handleDownload,
     handleBatchAnalyze,
     handleOpenReview,
+    handleOpenInnovation,
     handleAnalyzeOne,
     handleAnalysisStatus,
   }

@@ -128,4 +128,32 @@ export interface ReviewRecord {
   created_at?: string
 }
 
+export interface InnovationPoint {
+  title: string
+  description: string
+  basis: string[]
+  expected_contribution: string
+}
+
+export interface InnovationRecord {
+  id?: number
+  arxiv_ids: string[]
+  content: InnovationPoint[] | null
+  language: string
+  status: string
+  error?: string | null
+  progress?: number
+  created_at?: string
+}
+
+export interface InnovationHistoryItem {
+  id: number
+  arxiv_ids: string[]
+  paper_count: number
+  innovation_count: number
+  language: string
+  status: string
+  created_at?: string
+}
+
 export type AnalysisLanguage = 'zh' | 'en'

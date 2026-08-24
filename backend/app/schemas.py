@@ -130,6 +130,40 @@ class ReviewRequest(BaseModel):
     language: str = Field(default="zh", pattern="^(zh|en)$")
 
 
+class InnovationPoint(BaseModel):
+    title: str = ""
+    description: str = ""
+    basis: List[str] = Field(default_factory=list)
+    expected_contribution: str = ""
+
+
+class InnovationRecord(BaseModel):
+    id: Optional[int] = None
+    arxiv_ids: List[str] = Field(default_factory=list)
+    content: Optional[List[InnovationPoint]] = None
+    language: str = "zh"
+    status: str = "pending"
+    error: Optional[str] = None
+    progress: Optional[int] = 0
+    created_at: Optional[str] = None
+
+
+class InnovationHistoryItem(BaseModel):
+    id: int
+    arxiv_ids: List[str] = Field(default_factory=list)
+    paper_count: int = 0
+    innovation_count: int = 0
+    language: str = "zh"
+    status: str = "pending"
+    created_at: Optional[str] = None
+
+
+class InnovationRequest(BaseModel):
+    arxiv_ids: List[str] = Field(default_factory=list)
+    count: int = Field(default=3)
+    language: str = Field(default="zh", pattern="^(zh|en)$")
+
+
 class AnalyzeResponse(BaseModel):
     arxiv_id: str
     status: str

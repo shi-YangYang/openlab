@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { App as AntApp, Card, Layout, Menu, Typography } from 'antd'
+import { App as AntApp, Card, Layout, Menu, Tabs, Typography } from 'antd'
 import {
   BookOutlined,
   HistoryOutlined,
@@ -11,9 +11,11 @@ import type { MenuProps } from 'antd'
 import SearchForm, { SearchFormValues } from './components/SearchForm'
 import PaperWorkspace from './components/PaperWorkspace'
 import SearchHistoryList from './components/SearchHistoryList'
+import InnovationHistoryList from './components/InnovationHistoryList'
 import LlmConfigForm from './components/LlmConfigForm'
 import AnalysisModal from './components/AnalysisModal'
 import ReviewModal from './components/ReviewModal'
+import InnovationModal from './components/InnovationModal'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
 import { searchPapers, searchTopic } from './api'
 import type { AnalysisRecord, Paper, SearchHistoryDetail } from './types'
@@ -25,7 +27,7 @@ type PageKey = 'search' | 'library' | 'history' | 'settings'
 const MENU_ITEMS: MenuProps['items'] = [
   { key: 'search', icon: <SearchOutlined />, label: '搜索' },
   { key: 'library', icon: <BookOutlined />, label: '论文库' },
-  { key: 'history', icon: <HistoryOutlined />, label: '历史搜索' },
+  { key: 'history', icon: <HistoryOutlined />, label: '历史' },
   { key: 'settings', icon: <SettingOutlined />, label: '设置' },
 ]
 
@@ -37,6 +39,8 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [reviewIds, setReviewIds] = useState<string[]>([])
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [innovationIds, setInnovationIds] = useState<string[]>([])
+  const [innovationOpen, setInnovationOpen] = useState(false)
 
   const openAnalyze = useCallback((arxivId: string) => {
     setAnalyzeTarget(arxivId)
@@ -48,13 +52,20 @@ export default function App() {
     setReviewOpen(true)
   }, [])
 
+  const openInnovation = useCallback((ids: string[]) => {
+    setInnovationIds(ids)
+    setInnovationOpen(true)
+  }, [])
+
   const searchWorkspace = usePaperWorkspace({
     onAnalyzeOne: openAnalyze,
     onOpenReview: openReview,
+    onOpenInnovation: openInnovation,
   })
   const libraryWorkspace = usePaperWorkspace({
     onAnalyzeOne: openAnalyze,
     onOpenReview: openReview,
+    onOpenInnovation: openInnovation,
   })
 
   useEffect(() => {
@@ -145,7 +156,23 @@ export default function App() {
           />
         )}
 
-        {page === 'history' && <SearchHistoryList onRestore={handleRestore} />}
+        {page === 'history' && (
+          <Tabs
+            defaultActiveKey="search"
+            items={[
+              {
+                key: 'search',
+                label: '搜索历史',
+                children: <SearchHistoryList onRestore={handleRestore} />,
+              },
+              {
+                key: 'innovation',
+                label: '创新点历史',
+                children: <InnovationHistoryList onAnalyze={openAnalyze} />,
+              },
+            ]}
+          />
+        )}
 
         {page === 'settings' && (
           <Card title="LLM 配置">
@@ -163,6 +190,11 @@ export default function App() {
           arxivIds={reviewIds}
           open={reviewOpen}
           onClose={() => setReviewOpen(false)}
+        />
+        <InnovationModal
+          arxivIds={innovationIds}
+          open={innovationOpen}
+          onClose={() => setInnovationOpen(false)}
         />
       </Content>
     </Layout>

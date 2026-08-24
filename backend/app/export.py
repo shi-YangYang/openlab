@@ -104,3 +104,36 @@ def review_to_markdown(
         review.get("summary") or "-",
     ]
     return "\n".join(lines) + "\n"
+
+
+def innovations_to_markdown(
+    innovations: List[Dict[str, Any]], papers: List[Dict[str, Any]], language: str
+) -> str:
+    """Render a list of innovation points as Markdown (FR-8)."""
+    lang_label = _LANGUAGE_LABEL.get(language, language)
+    titles = ", ".join(
+        p.get("title") or p.get("arxiv_id") or "" for p in papers if p
+    )
+
+    lines = [
+        "# 创新点设计",
+        "",
+        f"- 论文: {titles}",
+        f"- 语言: {lang_label}",
+        "",
+    ]
+    for idx, point in enumerate(innovations, start=1):
+        lines += [
+            f"## 创新点 {idx}",
+            "",
+            f"**标题**: {point.get('title') or '-'}",
+            "",
+            f"**描述**: {point.get('description') or '-'}",
+            "",
+            "**创新依据**:",
+            _bullets(point.get("basis", [])),
+            "",
+            f"**预期贡献**: {point.get('expected_contribution') or '-'}",
+            "",
+        ]
+    return "\n".join(lines) + "\n"

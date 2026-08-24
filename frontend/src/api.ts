@@ -2,6 +2,8 @@ import type {
   AnalysisLanguage,
   AnalysisRecord,
   DownloadResult,
+  InnovationHistoryItem,
+  InnovationRecord,
   LlmConfig,
   LlmPreset,
   Paper,
@@ -167,6 +169,36 @@ export async function exportAnalysisMarkdown(arxivId: string): Promise<string> {
 
 export async function exportReviewMarkdown(id: number): Promise<string> {
   const res = await fetch(`${BASE}/reviews/${id}/export`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.text()
+}
+
+export async function createInnovations(
+  arxivIds: string[],
+  count: number,
+  language: AnalysisLanguage,
+): Promise<InnovationRecord> {
+  return post<InnovationRecord>('/innovations', { arxiv_ids: arxivIds, count, language })
+}
+
+export async function listInnovations(): Promise<InnovationHistoryItem[]> {
+  return get<InnovationHistoryItem[]>('/innovations')
+}
+
+export async function getInnovation(id: number): Promise<InnovationRecord> {
+  return get<InnovationRecord>(`/innovations/${id}`)
+}
+
+export async function deleteInnovation(id: number): Promise<void> {
+  return del(`/innovations/${id}`)
+}
+
+export async function clearInnovations(): Promise<void> {
+  return del('/innovations')
+}
+
+export async function exportInnovationMarkdown(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/innovations/${id}/export`)
   if (!res.ok) throw new Error(await res.text())
   return res.text()
 }

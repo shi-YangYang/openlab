@@ -1,5 +1,5 @@
 import { Button, Card, Space, Tag } from 'antd'
-import { DownloadOutlined, FileSearchOutlined, TeamOutlined } from '@ant-design/icons'
+import { BulbOutlined, DownloadOutlined, FileSearchOutlined, TeamOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
@@ -22,6 +22,7 @@ export default function PaperWorkspace({ title, workspace }: Props) {
     handleDownload,
     handleBatchAnalyze,
     handleOpenReview,
+    handleOpenInnovation,
     handleAnalyzeOne,
   } = workspace
 
@@ -54,6 +55,9 @@ export default function PaperWorkspace({ title, workspace }: Props) {
           </Button>
           <Button icon={<TeamOutlined />} disabled={papers.length < 2} onClick={handleOpenReview}>
             对比综述
+          </Button>
+          <Button icon={<BulbOutlined />} disabled={!papers.length} onClick={handleOpenInnovation}>
+            生成创新点
           </Button>
         </Space>
       }

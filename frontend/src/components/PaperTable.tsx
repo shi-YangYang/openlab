@@ -31,19 +31,8 @@ interface Props {
   onAnalyze?: (arxivId: string) => void
 }
 
-export default function PaperTable({
-  papers,
-  loading,
-  selectedIds,
-  onSelect,
-  statusMap,
-  downloadProgressMap = {},
-  showStatus,
-  analysisStatusMap = {},
-  showAnalysisStatus = false,
-  onAnalyze,
-}: Props) {
-  const columns: TableProps<Paper>['columns'] = [
+export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
+  return [
     {
       title: '标题',
       dataIndex: 'title',
@@ -84,6 +73,58 @@ export default function PaperTable({
       render: (id: string) => <Typography.Text code>{id}</Typography.Text>,
     },
   ]
+}
+
+export function paperActionColumn(
+  onAnalyze: (arxivId: string) => void,
+  statusMap: Record<string, string>,
+): NonNullable<TableProps<Paper>['columns']>[number] {
+  return {
+    title: '操作',
+    key: 'actions',
+    width: 200,
+    render: (_: unknown, r: Paper) => {
+      const downloaded = statusMap[r.arxiv_id] === 'downloaded'
+      return (
+        <Space size={4}>
+          <Button
+            size="small"
+            icon={<FileSearchOutlined />}
+            onClick={() => onAnalyze(r.arxiv_id)}
+          >
+            分析
+          </Button>
+          {downloaded && (
+            <Button
+              size="small"
+              type="link"
+              icon={<FilePdfOutlined />}
+              href={`/api/papers/${r.arxiv_id}/pdf`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              查看论文
+            </Button>
+          )}
+        </Space>
+      )
+    },
+  }
+}
+
+export default function PaperTable({
+  papers,
+  loading,
+  selectedIds,
+  onSelect,
+  statusMap,
+  downloadProgressMap = {},
+  showStatus,
+  analysisStatusMap = {},
+  showAnalysisStatus = false,
+  onAnalyze,
+}: Props) {
+  const columns = basePaperColumns()
 
   if (showStatus) {
     columns.push({
@@ -139,37 +180,7 @@ export default function PaperTable({
   }
 
   if (onAnalyze) {
-    columns.push({
-      title: '操作',
-      key: 'actions',
-      width: 200,
-      render: (_: unknown, r: Paper) => {
-        const downloaded = statusMap[r.arxiv_id] === 'downloaded'
-        return (
-          <Space size={4}>
-            <Button
-              size="small"
-              icon={<FileSearchOutlined />}
-              onClick={() => onAnalyze(r.arxiv_id)}
-            >
-              分析
-            </Button>
-            {downloaded && (
-              <Button
-                size="small"
-                type="link"
-                icon={<FilePdfOutlined />}
-                href={`/api/papers/${r.arxiv_id}/pdf`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                查看论文
-              </Button>
-            )}
-          </Space>
-        )
-      },
-    })
+    columns.push(paperActionColumn(onAnalyze, statusMap))
   }
 
   return (
