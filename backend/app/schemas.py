@@ -368,6 +368,7 @@ class AgentSessionItem(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     running: bool = False
+    status: str = ""
 
 
 class AgentSessionCreate(BaseModel):

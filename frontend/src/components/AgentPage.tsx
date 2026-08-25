@@ -65,6 +65,14 @@ function formatTime(value?: string): string {
   return String(value).replace('T', ' ').replace('Z', '').slice(0, 16)
 }
 
+function runningStatusLabel(status?: string): string {
+  if (status === 'thinking') return '思考中…'
+  if (status && status.startsWith('executing:')) {
+    return `执行中：${status.slice('executing:'.length).trim()}`
+  }
+  return 'Agent 正在执行…'
+}
+
 export default function AgentPage() {
   const { message } = AntApp.useApp()
   const [sessions, setSessions] = useState<AgentSessionItem[]>([])
@@ -73,6 +81,7 @@ export default function AgentPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
+  const [statusLabel, setStatusLabel] = useState('')
   const [pendingApproval, setPendingApproval] = useState<AgentPendingApproval | null>(null)
   const [approving, setApproving] = useState(false)
   const [sessionsLoading, setSessionsLoading] = useState(false)
@@ -123,9 +132,11 @@ export default function AgentPage() {
         )
         if (detail.running) {
           setRunning(true)
+          setStatusLabel(runningStatusLabel(detail.status))
           pollTimerRef.current = window.setTimeout(() => void loadSessionDetail(id), 2000)
         } else {
           setRunning(false)
+          setStatusLabel('')
         }
       } catch (e) {
         setRunning(false)
@@ -184,6 +195,7 @@ export default function AgentPage() {
     if (id === currentId) return
     stopPolling()
     setRunning(false)
+    setStatusLabel('')
     setCurrentId(id)
     setPendingApproval(null)
     await loadSessionDetail(id)
@@ -193,6 +205,7 @@ export default function AgentPage() {
     try {
       stopPolling()
       setRunning(false)
+      setStatusLabel('')
       const created = await createAgentSession()
       setSessions((prev) => [created, ...prev])
       setCurrentId(created.id)
@@ -209,6 +222,7 @@ export default function AgentPage() {
     if (!text || loading) return
     setInput('')
     setLoading(true)
+    setStatusLabel('')
     try {
       let sid = currentId
       if (!sid) {
@@ -462,7 +476,9 @@ export default function AgentPage() {
               {(loading || running) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999' }}>
                   <Spin size="small" />
-                  <Typography.Text type="secondary">Agent 正在执行…</Typography.Text>
+                  <Typography.Text type="secondary">
+                    {statusLabel || 'Agent 正在执行…'}
+                  </Typography.Text>
                 </div>
               )}
               <div ref={bottomRef} />

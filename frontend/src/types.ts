@@ -282,6 +282,7 @@ export interface AgentSessionItem {
   created_at?: string
   updated_at?: string
   running?: boolean
+  status?: string
 }
 
 export interface AgentSessionMessage {

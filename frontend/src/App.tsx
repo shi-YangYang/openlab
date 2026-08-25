@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { App as AntApp, Card, Layout, Menu, Tabs, Typography } from 'antd'
+import { App as AntApp, Card, Layout, Menu, Spin, Tabs, Typography } from 'antd'
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   BookOutlined,
   CloudServerOutlined,
@@ -23,7 +24,7 @@ import InnovationModal from './components/InnovationModal'
 import ExperimentModal from './components/ExperimentModal'
 import AgentPage from './components/AgentPage'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
-import { searchPapers, searchTopic } from './api'
+import { listServers, searchPapers, searchTopic } from './api'
 import type { AnalysisRecord, Paper, SearchHistoryDetail, Server } from './types'
 
 const { Header, Content } = Layout
@@ -39,9 +40,39 @@ const MENU_ITEMS: MenuProps['items'] = [
   { key: 'settings', icon: <SettingOutlined />, label: '设置' },
 ]
 
+function ServerDetailRoute() {
+  const { serverId } = useParams()
+  const navigate = useNavigate()
+  const [server, setServer] = useState<Server | null>(null)
+
+  useEffect(() => {
+    let active = true
+    listServers()
+      .then((list) => {
+        if (active) setServer(list.find((s) => s.id === serverId) ?? null)
+      })
+      .catch(() => {
+        if (active) setServer(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [serverId])
+
+  if (!server) {
+    return (
+      <div style={{ textAlign: 'center', padding: 48 }}>
+        <Spin />
+      </div>
+    )
+  }
+  return <ServerDetailPage server={server} onBack={() => navigate('/servers')} />
+}
+
 export default function App() {
   const { message } = AntApp.useApp()
-  const [page, setPage] = useState<PageKey>('search')
+  const navigate = useNavigate()
+  const location = useLocation()
   const [llmQuery, setLlmQuery] = useState<string | null>(null)
   const [analyzeTarget, setAnalyzeTarget] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -51,7 +82,6 @@ export default function App() {
   const [innovationOpen, setInnovationOpen] = useState(false)
   const [experimentIds, setExperimentIds] = useState<string[]>([])
   const [experimentOpen, setExperimentOpen] = useState(false)
-  const [selectedServer, setSelectedServer] = useState<Server | null>(null)
 
   const openAnalyze = useCallback((arxivId: string) => {
     setAnalyzeTarget(arxivId)
@@ -118,7 +148,7 @@ export default function App() {
   const handleRestore = (detail: SearchHistoryDetail) => {
     searchWorkspace.setResults(detail.papers)
     setLlmQuery(null)
-    setPage('search')
+    navigate('/search')
   }
 
   const handleAnalysisStatus = useCallback(
@@ -127,6 +157,58 @@ export default function App() {
       libraryWorkspace.handleAnalysisStatus(rec)
     },
     [searchWorkspace.handleAnalysisStatus, libraryWorkspace.handleAnalysisStatus],
+  )
+
+  const selectedKey = (location.pathname.split('/')[1] || 'search') as PageKey
+
+  const searchPage = (
+    <>
+      <Card style={{ marginBottom: 16 }}>
+        <SearchForm loading={searchWorkspace.loading} onSubmit={handleSearch} />
+        {llmQuery && (
+          <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+            <InfoCircleOutlined style={{ marginRight: 6 }} />
+            已根据主题拆解为检索式：
+            <Typography.Text code>{llmQuery}</Typography.Text>
+          </Typography.Text>
+        )}
+      </Card>
+      <PaperWorkspace
+        title={`搜索结果（${searchWorkspace.papers.length}）`}
+        workspace={searchWorkspace}
+      />
+    </>
+  )
+
+  const libraryPage = (
+    <PaperWorkspace
+      title={`论文库（${libraryWorkspace.papers.length}）`}
+      workspace={libraryWorkspace}
+    />
+  )
+
+  const historyPage = (
+    <Tabs
+      defaultActiveKey="search"
+      items={[
+        {
+          key: 'search',
+          label: '搜索历史',
+          children: <SearchHistoryList onRestore={handleRestore} />,
+        },
+        {
+          key: 'innovation',
+          label: '创新点历史',
+          children: <InnovationHistoryList onAnalyze={openAnalyze} />,
+        },
+      ]}
+    />
+  )
+
+  const settingsPage = (
+    <Card title="LLM 配置">
+      <LlmConfigForm />
+    </Card>
   )
 
   return (
@@ -138,81 +220,24 @@ export default function App() {
         <Menu
           theme="dark"
           mode="horizontal"
-          selectedKeys={[page]}
+          selectedKeys={[selectedKey]}
           items={MENU_ITEMS}
-          onClick={(e) => {
-            const key = e.key as PageKey
-            setPage(key)
-            if (key !== 'servers') setSelectedServer(null)
-          }}
+          onClick={(e) => navigate(`/${e.key}`)}
           style={{ flex: 1, minWidth: 0 }}
         />
       </Header>
       <Content style={{ maxWidth: 1200, width: '100%', margin: '0 auto', padding: 24 }}>
-        {page === 'search' && (
-          <>
-            <Card style={{ marginBottom: 16 }}>
-              <SearchForm loading={searchWorkspace.loading} onSubmit={handleSearch} />
-              {llmQuery && (
-                <Typography.Text
-                  type="secondary"
-                  style={{ display: 'block', marginTop: 12 }}
-                >
-                  <InfoCircleOutlined style={{ marginRight: 6 }} />
-                  已根据主题拆解为检索式：
-                  <Typography.Text code>{llmQuery}</Typography.Text>
-                </Typography.Text>
-              )}
-            </Card>
-            <PaperWorkspace
-              title={`搜索结果（${searchWorkspace.papers.length}）`}
-              workspace={searchWorkspace}
-            />
-          </>
-        )}
-
-        {page === 'library' && (
-          <PaperWorkspace
-            title={`论文库（${libraryWorkspace.papers.length}）`}
-            workspace={libraryWorkspace}
-          />
-        )}
-
-        {page === 'history' && (
-          <Tabs
-            defaultActiveKey="search"
-            items={[
-              {
-                key: 'search',
-                label: '搜索历史',
-                children: <SearchHistoryList onRestore={handleRestore} />,
-              },
-              {
-                key: 'innovation',
-                label: '创新点历史',
-                children: <InnovationHistoryList onAnalyze={openAnalyze} />,
-              },
-            ]}
-          />
-        )}
-
-        {page === 'servers' &&
-          (selectedServer ? (
-            <ServerDetailPage
-              server={selectedServer}
-              onBack={() => setSelectedServer(null)}
-            />
-          ) : (
-            <ServersPage onOpenDetail={setSelectedServer} />
-          ))}
-
-        {page === 'agent' && <AgentPage />}
-
-        {page === 'settings' && (
-          <Card title="LLM 配置">
-            <LlmConfigForm />
-          </Card>
-        )}
+        <Routes>
+          <Route path="/" element={<Navigate to="/search" replace />} />
+          <Route path="/search" element={searchPage} />
+          <Route path="/library" element={libraryPage} />
+          <Route path="/history" element={historyPage} />
+          <Route path="/servers" element={<ServersPage onOpenDetail={(s) => navigate(`/servers/${s.id}`)} />} />
+          <Route path="/servers/:serverId" element={<ServerDetailRoute />} />
+          <Route path="/agent" element={<AgentPage />} />
+          <Route path="/settings" element={settingsPage} />
+          <Route path="*" element={<Navigate to="/search" replace />} />
+        </Routes>
 
         <AnalysisModal
           arxivId={analyzeTarget}

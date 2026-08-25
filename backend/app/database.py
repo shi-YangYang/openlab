@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     created_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     updated_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     messages TEXT DEFAULT '[]',
-    running INTEGER DEFAULT 0
+    running INTEGER DEFAULT 0,
+    status TEXT
 );
 """
 
@@ -115,6 +116,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("reviews", "progress", "INTEGER DEFAULT 0"),
         ("analyses", "message", "TEXT"),
         ("agent_sessions", "running", "INTEGER DEFAULT 0"),
+        ("agent_sessions", "status", "TEXT"),
     ):
         names = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in names:
@@ -688,6 +690,7 @@ def _agent_session_item(row: sqlite3.Row) -> Dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "running": bool(row["running"]),
+        "status": row["status"] or "",
     }
 
 
@@ -769,6 +772,18 @@ def set_agent_session_running(session_id: str, running: bool) -> None:
         conn.execute(
             "UPDATE agent_sessions SET running = ? WHERE id = ?",
             (1 if running else 0, session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_agent_session_status(session_id: str, status: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE agent_sessions SET status = ? WHERE id = ?",
+            (status, session_id),
         )
         conn.commit()
     finally:

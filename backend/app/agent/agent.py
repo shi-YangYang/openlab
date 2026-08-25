@@ -22,7 +22,15 @@ from langchain_openai import ChatOpenAI
 
 from ..llm_config import get_effective_config
 from . import tools as agent_tools
-from .sessions import Session, get_or_create, get_session, save_messages, set_running, update_title
+from .sessions import (
+    Session,
+    get_or_create,
+    get_session,
+    save_messages,
+    set_running,
+    set_status,
+    update_title,
+)
 
 MAX_STEPS = 20
 LLM_REQUEST_TIMEOUT_SECONDS = 120.0
@@ -34,7 +42,8 @@ SYSTEM_PROMPT = (
     "工作方式：\n"
     "- 根据用户目标，自主规划步骤，逐步调用工具并把结果串联起来，直到产出最终回答。\n"
     "- 可多轮调用工具；下载、分析、综述、创新、实验设计等较慢的操作请等待其完成后再继续。\n"
-    "- 危险操作（在服务器上执行命令 run_command、部署代码 deploy_code）会先暂停并交由用户确认，"
+    "- 危险操作（服务器命令 run_command、部署代码 deploy_code、SFTP 上传 deploy_upload、服务器增删改、"
+    "本地执行 Python 代码 run_python_code、执行 shell 命令 run_shell_command）会先暂停并交由用户确认，"
     "请只在必要时调用。\n"
     "- 最后请用简洁、清晰的语言（默认中文）向用户总结你完成的工作与结论。"
 )
@@ -133,6 +142,7 @@ def _tool_call_to_dict(tool_call: Any) -> Dict[str, Any]:
 async def _execute_feedback(
     session: Session, name: str, args: Dict[str, Any], tool_call_id: str
 ) -> Dict[str, Any]:
+    agent_tools.set_session_context(session.session_id)
     try:
         result = await agent_tools.execute_tool(name, args)
         session.messages.append(
@@ -154,6 +164,7 @@ async def _run_loop(
 ) -> Dict[str, Any]:
     steps = steps_used
     while steps < max_steps:
+        set_status(session.session_id, "thinking")
         response: AIMessage = await llm.ainvoke(session.messages)
         session.messages.append(response)
 
@@ -181,6 +192,7 @@ async def _run_loop(
                     "pending_approval": {"tool": name, "args": args},
                 }
 
+            set_status(session.session_id, f"executing:{name} (第{steps}步)")
             entry = await _execute_feedback(session, name, args, tool_call.get("id"))
             log.append(entry)
 
@@ -214,6 +226,7 @@ async def run_chat(
         result = await _run_loop(session, llm, [], max_steps=max_steps)
     finally:
         set_running(session.session_id, False)
+        set_status(session.session_id, "")
 
     save_messages(session)  # persist assistant reply + tool results
 
@@ -258,6 +271,7 @@ async def run_approve(
         result = await _run_loop(session, llm, log, max_steps=max_steps)
     finally:
         set_running(session_id, False)
+        set_status(session_id, "")
     save_messages(session)
     result["session_id"] = session.session_id
     return result

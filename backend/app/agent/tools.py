@@ -5,6 +5,7 @@ orchestrate the full research pipeline. ``run_command`` and ``deploy_code`` are
 flagged as dangerous (``metadata["dangerous"]``) and the manual loop pauses
 before executing them so the user can approve or reject.
 """
+import contextvars
 import shlex
 from typing import Any, Dict, List, Optional
 
@@ -15,9 +16,34 @@ from .. import analysis, database, downloader, experiment, innovation, monitor, 
 from ..arxiv import ArxivClient
 from ..config import settings
 from ..llm import decompose_topic
+from . import sandbox
 
 # Tools that require explicit user approval before execution (FR-8/FR-9).
-DANGEROUS_TOOLS = {"run_command", "deploy_code"}
+DANGEROUS_TOOLS = {
+    "run_command",
+    "deploy_code",
+    "run_python_code",
+    "run_shell_command",
+    "create_server",
+    "update_server",
+    "delete_server",
+    "deploy_upload",
+}
+
+# The session id of the request currently executing tools, used by the dynamic
+# tools (run_python_code / run_shell_command) to locate their per-session sandbox.
+_CURRENT_SESSION_ID: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "agent_current_session_id", default=None
+)
+
+
+def set_session_context(session_id: Optional[str]) -> None:
+    """Record the session id for the duration of the current tool execution."""
+    _CURRENT_SESSION_ID.set(session_id)
+
+
+def _current_session() -> Optional[str]:
+    return _CURRENT_SESSION_ID.get()
 
 
 class SearchPapersArgs(BaseModel):
@@ -71,6 +97,45 @@ class DeployCodeArgs(BaseModel):
 class RunCommandArgs(BaseModel):
     server_id: str = Field(..., description="服务器 id")
     command: str = Field(..., description="要在远程服务器上执行的 shell 命令")
+
+
+class RunPythonCodeArgs(BaseModel):
+    code: str = Field(..., description="要执行的 Python 代码")
+
+
+class RunShellCommandArgs(BaseModel):
+    command: str = Field(..., description="要执行的本地 shell 命令")
+
+
+class CreateServerArgs(BaseModel):
+    name: str = Field(..., description="服务器名称")
+    host: str = Field(..., description="主机地址")
+    username: str = Field(..., description="登录用户名")
+    port: int = Field(22, ge=1, le=65535, description="SSH 端口")
+    auth_type: str = Field("password", pattern="^(password|key)$", description="认证方式：password 或 key")
+    password: Optional[str] = Field(None, description="密码（auth_type=password 时）")
+    private_key: Optional[str] = Field(None, description="私钥内容（auth_type=key 时）")
+
+
+class UpdateServerArgs(BaseModel):
+    server_id: str = Field(..., description="服务器 id")
+    name: Optional[str] = Field(None, description="服务器名称")
+    host: Optional[str] = Field(None, description="主机地址")
+    username: Optional[str] = Field(None, description="登录用户名")
+    port: Optional[int] = Field(None, ge=1, le=65535, description="SSH 端口")
+    auth_type: Optional[str] = Field(None, pattern="^(password|key)$", description="认证方式：password 或 key")
+    password: Optional[str] = Field(None, description="密码")
+    private_key: Optional[str] = Field(None, description="私钥内容")
+
+
+class DeleteServerArgs(BaseModel):
+    server_id: str = Field(..., description="服务器 id")
+
+
+class DeployUploadArgs(BaseModel):
+    server_id: str = Field(..., description="服务器 id")
+    local_path: str = Field(..., description="本地文件或目录路径")
+    remote_path: str = Field(..., description="远程目标路径")
 
 
 class NoArgs(BaseModel):
@@ -217,6 +282,97 @@ async def monitor_server(server_id: str) -> Dict[str, Any]:
     return monitor.collect(server)
 
 
+async def list_search_history() -> List[Dict[str, Any]]:
+    return database.list_search_history()
+
+
+async def list_innovations() -> List[Dict[str, Any]]:
+    return database.list_innovation_history()
+
+
+async def list_reviews() -> List[Dict[str, Any]]:
+    return database.list_reviews()
+
+
+async def list_experiments() -> List[Dict[str, Any]]:
+    return database.list_experiments()
+
+
+async def create_server(
+    name: str,
+    host: str,
+    username: str,
+    port: int = 22,
+    auth_type: str = "password",
+    password: Optional[str] = None,
+    private_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "name": name,
+        "host": host,
+        "username": username,
+        "port": port,
+        "auth_type": auth_type,
+    }
+    if password:
+        data["password"] = password
+    if private_key:
+        data["private_key"] = private_key
+    return servers.redact(servers.add_server(data))
+
+
+async def update_server(
+    server_id: str,
+    name: Optional[str] = None,
+    host: Optional[str] = None,
+    username: Optional[str] = None,
+    port: Optional[int] = None,
+    auth_type: Optional[str] = None,
+    password: Optional[str] = None,
+    private_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    data: Dict[str, Any] = {}
+    if name is not None:
+        data["name"] = name
+    if host is not None:
+        data["host"] = host
+    if username is not None:
+        data["username"] = username
+    if port is not None:
+        data["port"] = port
+    if auth_type is not None:
+        data["auth_type"] = auth_type
+    if password:
+        data["password"] = password
+    if private_key:
+        data["private_key"] = private_key
+    updated = servers.update_server(server_id, data)
+    if updated is None:
+        return {"error": f"Server not found: {server_id}"}
+    return servers.redact(updated)
+
+
+async def delete_server(server_id: str) -> Dict[str, Any]:
+    if not servers.delete_server(server_id):
+        return {"error": f"Server not found: {server_id}"}
+    return {"status": "deleted", "server_id": server_id}
+
+
+async def deploy_upload(server_id: str, local_path: str, remote_path: str) -> Dict[str, Any]:
+    server = servers.get_server(server_id)
+    if server is None:
+        return {"error": f"Server not found: {server_id}"}
+    return ssh.upload(server, local_path, remote_path)
+
+
+async def run_python_code(code: str) -> Dict[str, Any]:
+    return sandbox.run_python(code, _current_session() or "default")
+
+
+async def run_shell_command(command: str) -> Dict[str, Any]:
+    return sandbox.run_shell(command, _current_session() or "default")
+
+
 def _tool(
     coroutine: Any,
     name: str,
@@ -314,6 +470,72 @@ TOOLS: List[StructuredTool] = [
         "monitor_server",
         "采集远程服务器的 GPU/内存/磁盘/负载等运行状态。",
         ServerIdArgs,
+    ),
+    _tool(
+        list_search_history,
+        "list_search_history",
+        "列出历史搜索记录（关键词、模式、时间），只读。",
+        NoArgs,
+    ),
+    _tool(
+        list_innovations,
+        "list_innovations",
+        "列出历史生成的创新点记录，只读。",
+        NoArgs,
+    ),
+    _tool(
+        list_reviews,
+        "list_reviews",
+        "列出历史生成的文献综述记录，只读。",
+        NoArgs,
+    ),
+    _tool(
+        list_experiments,
+        "list_experiments",
+        "列出历史生成的实验方案记录，只读。",
+        NoArgs,
+    ),
+    _tool(
+        create_server,
+        "create_server",
+        "新增一台 SSH 服务器（凭据脱敏返回）。危险操作，执行前需用户确认。",
+        CreateServerArgs,
+        dangerous=True,
+    ),
+    _tool(
+        update_server,
+        "update_server",
+        "更新一台 SSH 服务器的配置（凭据脱敏返回）。危险操作，执行前需用户确认。",
+        UpdateServerArgs,
+        dangerous=True,
+    ),
+    _tool(
+        delete_server,
+        "delete_server",
+        "删除一台 SSH 服务器。危险操作，执行前需用户确认。",
+        DeleteServerArgs,
+        dangerous=True,
+    ),
+    _tool(
+        deploy_upload,
+        "deploy_upload",
+        "通过 SFTP 把本地文件/目录上传到远程服务器。危险操作，执行前需用户确认。",
+        DeployUploadArgs,
+        dangerous=True,
+    ),
+    _tool(
+        run_python_code,
+        "run_python_code",
+        "在会话沙箱中执行一段 Python 代码并返回输出。危险操作，执行前需用户确认。",
+        RunPythonCodeArgs,
+        dangerous=True,
+    ),
+    _tool(
+        run_shell_command,
+        "run_shell_command",
+        "在会话沙箱中执行一条本地 shell 命令并返回输出。危险操作，执行前需用户确认。",
+        RunShellCommandArgs,
+        dangerous=True,
     ),
 ]
 

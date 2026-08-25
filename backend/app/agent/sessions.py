@@ -109,6 +109,10 @@ def set_running(session_id: str, running: bool) -> None:
     database.set_agent_session_running(session_id, running)
 
 
+def set_status(session_id: str, status: str) -> None:
+    database.set_agent_session_status(session_id, status)
+
+
 def _content_to_str(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -150,6 +154,7 @@ def get_session_detail(session_id: str) -> Optional[Dict[str, Any]]:
         "created_at": record["created_at"],
         "updated_at": record["updated_at"],
         "running": bool(record.get("running")),
+        "status": record.get("status") or "",
         "messages": normalize_history(messages),
     }
 
