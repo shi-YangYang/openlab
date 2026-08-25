@@ -21,12 +21,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
 from . import analysis, database, downloader, experiment, export, innovation, monitor, servers, ssh
+from .agent import AgentError, run_approve, run_chat
 from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
 from .llm_config import get_effective_config, save_config
 from .presets import LLM_PRESETS
 from .schemas import (
+    AgentApproveRequest,
+    AgentChatRequest,
+    AgentChatResponse,
     AnalysisRecord,
     AnalyzeBatchRequest,
     AnalyzeBatchResponse,
@@ -714,3 +718,30 @@ async def exec_server(server_id: str, req: ExecRequest) -> dict:
 async def monitor_server(server_id: str) -> dict:
     server = _require_server(server_id)
     return monitor.collect(server)
+
+
+def _agent_api_key() -> str:
+    try:
+        return get_effective_config().get("api_key") or ""
+    except Exception:
+        return ""
+
+
+@app.post("/api/agent/chat", response_model=AgentChatResponse)
+async def agent_chat(req: AgentChatRequest) -> dict:
+    try:
+        return await run_chat(req.session_id, req.message)
+    except AgentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_redact(str(exc), _agent_api_key()))
+
+
+@app.post("/api/agent/approve", response_model=AgentChatResponse)
+async def agent_approve(req: AgentApproveRequest) -> dict:
+    try:
+        return await run_approve(req.session_id, req.approve)
+    except AgentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_redact(str(exc), _agent_api_key()))

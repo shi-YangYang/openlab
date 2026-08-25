@@ -5,6 +5,7 @@ import {
   CloudServerOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
+  RobotOutlined,
   SearchOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
@@ -20,19 +21,21 @@ import AnalysisModal from './components/AnalysisModal'
 import ReviewModal from './components/ReviewModal'
 import InnovationModal from './components/InnovationModal'
 import ExperimentModal from './components/ExperimentModal'
+import AgentPage from './components/AgentPage'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
 import { searchPapers, searchTopic } from './api'
 import type { AnalysisRecord, Paper, SearchHistoryDetail, Server } from './types'
 
 const { Header, Content } = Layout
 
-type PageKey = 'search' | 'library' | 'history' | 'servers' | 'settings'
+type PageKey = 'search' | 'library' | 'history' | 'servers' | 'agent' | 'settings'
 
 const MENU_ITEMS: MenuProps['items'] = [
   { key: 'search', icon: <SearchOutlined />, label: '搜索' },
   { key: 'library', icon: <BookOutlined />, label: '论文库' },
   { key: 'history', icon: <HistoryOutlined />, label: '历史' },
   { key: 'servers', icon: <CloudServerOutlined />, label: '服务器' },
+  { key: 'agent', icon: <RobotOutlined />, label: 'Agent' },
   { key: 'settings', icon: <SettingOutlined />, label: '设置' },
 ]
 
@@ -202,6 +205,8 @@ export default function App() {
           ) : (
             <ServersPage onOpenDetail={setSelectedServer} />
           ))}
+
+        {page === 'agent' && <AgentPage />}
 
         {page === 'settings' && (
           <Card title="LLM 配置">

@@ -1,4 +1,5 @@
 import type {
+  AgentChatResult,
   AnalysisLanguage,
   AnalysisRecord,
   CloneResult,
@@ -299,4 +300,18 @@ export async function monitorServer(id: string): Promise<MonitorData> {
 
 export async function execCommand(id: string, command: string): Promise<ExecResult> {
   return post<ExecResult>(`/servers/${id}/exec`, { command })
+}
+
+export async function agentChat(
+  sessionId: string | null,
+  message: string,
+): Promise<AgentChatResult> {
+  return post<AgentChatResult>('/agent/chat', { session_id: sessionId, message })
+}
+
+export async function agentApprove(
+  sessionId: string,
+  approve: boolean,
+): Promise<AgentChatResult> {
+  return post<AgentChatResult>('/agent/approve', { session_id: sessionId, approve })
 }

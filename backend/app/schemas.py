@@ -1,5 +1,5 @@
 """Pydantic request/response schemas."""
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -331,3 +331,32 @@ class MonitorResponse(BaseModel):
     disk: List[DiskInfo] = Field(default_factory=list)
     processes: List[str] = Field(default_factory=list)
     raw: Dict[str, str] = Field(default_factory=dict)
+
+
+class AgentToolCall(BaseModel):
+    tool: str
+    args: Dict[str, Any] = Field(default_factory=dict)
+    result: Any = None
+    status: str = "done"
+
+
+class AgentPendingApproval(BaseModel):
+    tool: str
+    args: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+
+
+class AgentChatResponse(BaseModel):
+    session_id: str
+    reply: Optional[str] = None
+    tool_calls: List[AgentToolCall] = Field(default_factory=list)
+    pending_approval: Optional[AgentPendingApproval] = None
+
+
+class AgentApproveRequest(BaseModel):
+    session_id: str
+    approve: bool

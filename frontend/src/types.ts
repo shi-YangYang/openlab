@@ -256,3 +256,22 @@ export interface MonitorData {
 export interface ExecResult {
   output: string
 }
+
+export interface AgentToolCall {
+  tool: string
+  args: Record<string, unknown>
+  result: unknown
+  status: string
+}
+
+export interface AgentPendingApproval {
+  tool: string
+  args: Record<string, unknown>
+}
+
+export interface AgentChatResult {
+  session_id: string
+  reply: string | null
+  tool_calls: AgentToolCall[]
+  pending_approval: AgentPendingApproval | null
+}
