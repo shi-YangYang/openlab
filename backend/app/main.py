@@ -21,7 +21,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
 from . import analysis, database, downloader, experiment, export, innovation, monitor, servers, ssh
-from .agent import AgentError, run_approve, run_chat
+from .agent import (
+    AgentError,
+    create_session,
+    delete_session,
+    get_session_detail,
+    list_sessions,
+    run_approve,
+    run_chat,
+    update_title,
+)
 from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
@@ -31,6 +40,10 @@ from .schemas import (
     AgentApproveRequest,
     AgentChatRequest,
     AgentChatResponse,
+    AgentSessionCreate,
+    AgentSessionDetail,
+    AgentSessionItem,
+    AgentSessionUpdate,
     AnalysisRecord,
     AnalyzeBatchRequest,
     AnalyzeBatchResponse,
@@ -725,6 +738,41 @@ def _agent_api_key() -> str:
         return get_effective_config().get("api_key") or ""
     except Exception:
         return ""
+
+
+@app.get("/api/agent/sessions", response_model=List[AgentSessionItem])
+async def list_agent_sessions() -> List[dict]:
+    return list_sessions()
+
+
+@app.post("/api/agent/sessions", response_model=AgentSessionItem)
+async def create_agent_session(req: AgentSessionCreate) -> dict:
+    session = create_session(title=req.title)
+    detail = get_session_detail(session.session_id)
+    return detail if detail is not None else {"id": session.session_id, "title": session.title}
+
+
+@app.get("/api/agent/sessions/{session_id}", response_model=AgentSessionDetail)
+async def get_agent_session(session_id: str) -> dict:
+    detail = get_session_detail(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    return detail
+
+
+@app.put("/api/agent/sessions/{session_id}", response_model=AgentSessionItem)
+async def update_agent_session(session_id: str, req: AgentSessionUpdate) -> dict:
+    record = update_title(session_id, req.title)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    return record
+
+
+@app.delete("/api/agent/sessions/{session_id}")
+async def delete_agent_session(session_id: str) -> dict:
+    if not delete_session(session_id):
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    return {"status": "ok"}
 
 
 @app.post("/api/agent/chat", response_model=AgentChatResponse)

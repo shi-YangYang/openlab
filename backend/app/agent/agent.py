@@ -22,10 +22,11 @@ from langchain_openai import ChatOpenAI
 
 from ..llm_config import get_effective_config
 from . import tools as agent_tools
-from .sessions import Session, get_or_create, get_session
+from .sessions import Session, get_or_create, get_session, save_messages, set_running, update_title
 
 MAX_STEPS = 20
 LLM_REQUEST_TIMEOUT_SECONDS = 120.0
+AUTO_TITLE_MAX_LEN = 30
 
 SYSTEM_PROMPT = (
     "你是 openlab 科研 agent，能够调用工具自主完成科研流程，覆盖：文献挖掘（检索/下载）、"
@@ -94,6 +95,14 @@ def _stringify(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return str(value)
+
+
+def _generate_title(message: str, max_len: int = AUTO_TITLE_MAX_LEN) -> str:
+    """Derive a session title from the first user message (truncated)."""
+    text = " ".join(message.split())
+    if not text:
+        return "新会话"
+    return text[:max_len]
 
 
 def build_llm() -> ChatOpenAI:
@@ -189,12 +198,25 @@ async def run_chat(
     if session.pending is not None:
         raise AgentError("存在待确认的危险操作，请先处理确认或拒绝。", 409)
 
-    if not session.messages:
+    is_first = not session.messages
+    if is_first:
         session.messages.append(SystemMessage(content=SYSTEM_PROMPT))
 
     session.messages.append(HumanMessage(content=message))
+    if is_first and not session.title:
+        session.title = _generate_title(message)
+        update_title(session.session_id, session.title)
+    save_messages(session)  # persist user message + title before the long loop
+
+    set_running(session.session_id, True)
     llm = _build_bound_llm()
-    result = await _run_loop(session, llm, [], max_steps=max_steps)
+    try:
+        result = await _run_loop(session, llm, [], max_steps=max_steps)
+    finally:
+        set_running(session.session_id, False)
+
+    save_messages(session)  # persist assistant reply + tool results
+
     result["session_id"] = session.session_id
     return result
 
@@ -212,25 +234,30 @@ async def run_approve(
     pending_calls = session.pending["tool_calls"]
     session.pending = None
 
-    for tool_call in pending_calls:
-        name = tool_call["name"]
-        args = tool_call["args"]
-        tool_call_id = tool_call["id"]
-        if approve:
-            entry = await _execute_feedback(session, name, args, tool_call_id)
-        else:
-            session.messages.append(
-                ToolMessage(content="用户拒绝了该操作，未执行。", tool_call_id=tool_call_id)
-            )
-            entry = {
-                "tool": name,
-                "args": args,
-                "result": "用户拒绝，未执行",
-                "status": "rejected",
-            }
-        log.append(entry)
+    set_running(session_id, True)
+    try:
+        for tool_call in pending_calls:
+            name = tool_call["name"]
+            args = tool_call["args"]
+            tool_call_id = tool_call["id"]
+            if approve:
+                entry = await _execute_feedback(session, name, args, tool_call_id)
+            else:
+                session.messages.append(
+                    ToolMessage(content="用户拒绝了该操作，未执行。", tool_call_id=tool_call_id)
+                )
+                entry = {
+                    "tool": name,
+                    "args": args,
+                    "result": "用户拒绝，未执行",
+                    "status": "rejected",
+                }
+            log.append(entry)
 
-    llm = _build_bound_llm()
-    result = await _run_loop(session, llm, log, max_steps=max_steps)
+        llm = _build_bound_llm()
+        result = await _run_loop(session, llm, log, max_steps=max_steps)
+    finally:
+        set_running(session_id, False)
+    save_messages(session)
     result["session_id"] = session.session_id
     return result

@@ -360,3 +360,28 @@ class AgentChatResponse(BaseModel):
 class AgentApproveRequest(BaseModel):
     session_id: str
     approve: bool
+
+
+class AgentSessionItem(BaseModel):
+    id: str
+    title: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    running: bool = False
+
+
+class AgentSessionCreate(BaseModel):
+    title: Optional[str] = None
+
+
+class AgentSessionUpdate(BaseModel):
+    title: str
+
+
+class AgentSessionMessage(BaseModel):
+    role: str
+    content: str
+
+
+class AgentSessionDetail(AgentSessionItem):
+    messages: List[AgentSessionMessage] = Field(default_factory=list)

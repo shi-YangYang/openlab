@@ -76,6 +76,15 @@ CREATE TABLE IF NOT EXISTS search_history (
     papers TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT DEFAULT '',
+    created_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    messages TEXT DEFAULT '[]',
+    running INTEGER DEFAULT 0
+);
 """
 
 
@@ -105,6 +114,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("analyses", "progress", "INTEGER DEFAULT 0"),
         ("reviews", "progress", "INTEGER DEFAULT 0"),
         ("analyses", "message", "TEXT"),
+        ("agent_sessions", "running", "INTEGER DEFAULT 0"),
     ):
         names = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in names:
@@ -666,6 +676,119 @@ def clear_search_history() -> None:
     conn = _connect()
     try:
         conn.execute("DELETE FROM search_history")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _agent_session_item(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "title": row["title"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "running": bool(row["running"]),
+    }
+
+
+def create_agent_session(session_id: str, title: str = "") -> Dict[str, Any]:
+    """Insert a new agent session row and return its metadata."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO agent_sessions (id, title) VALUES (?, ?)",
+            (session_id, title or ""),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM agent_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        return _agent_session_item(row)
+    finally:
+        conn.close()
+
+
+def list_agent_sessions() -> List[Dict[str, Any]]:
+    """Return agent session metadata (no messages), newest updated first."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM agent_sessions ORDER BY updated_at DESC, id DESC"
+        ).fetchall()
+        return [_agent_session_item(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_agent_session(session_id: str) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM agent_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if not row:
+            return None
+        data = _agent_session_item(row)
+        data["messages"] = row["messages"] or "[]"
+        return data
+    finally:
+        conn.close()
+
+
+def update_agent_session_title(session_id: str, title: str) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE agent_sessions SET title = ?, updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?",
+            (title or "", session_id),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM agent_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        return _agent_session_item(row) if row else None
+    finally:
+        conn.close()
+
+
+def save_agent_messages(session_id: str, messages: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE agent_sessions SET messages = ?, updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?",
+            (messages, session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_agent_session_running(session_id: str, running: bool) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE agent_sessions SET running = ? WHERE id = ?",
+            (1 if running else 0, session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_agent_session(session_id: str) -> bool:
+    conn = _connect()
+    try:
+        cur = conn.execute("DELETE FROM agent_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def clear_agent_sessions() -> None:
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM agent_sessions")
         conn.commit()
     finally:
         conn.close()

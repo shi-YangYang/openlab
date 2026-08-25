@@ -275,3 +275,20 @@ export interface AgentChatResult {
   tool_calls: AgentToolCall[]
   pending_approval: AgentPendingApproval | null
 }
+
+export interface AgentSessionItem {
+  id: string
+  title: string
+  created_at?: string
+  updated_at?: string
+  running?: boolean
+}
+
+export interface AgentSessionMessage {
+  role: string
+  content: string
+}
+
+export interface AgentSessionDetail extends AgentSessionItem {
+  messages: AgentSessionMessage[]
+}

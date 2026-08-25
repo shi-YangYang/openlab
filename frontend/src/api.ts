@@ -1,5 +1,7 @@
 import type {
   AgentChatResult,
+  AgentSessionDetail,
+  AgentSessionItem,
   AnalysisLanguage,
   AnalysisRecord,
   CloneResult,
@@ -314,4 +316,24 @@ export async function agentApprove(
   approve: boolean,
 ): Promise<AgentChatResult> {
   return post<AgentChatResult>('/agent/approve', { session_id: sessionId, approve })
+}
+
+export async function listAgentSessions(): Promise<AgentSessionItem[]> {
+  return get<AgentSessionItem[]>('/agent/sessions')
+}
+
+export async function createAgentSession(): Promise<AgentSessionItem> {
+  return post<AgentSessionItem>('/agent/sessions', {})
+}
+
+export async function getAgentSession(id: string): Promise<AgentSessionDetail> {
+  return get<AgentSessionDetail>(`/agent/sessions/${id}`)
+}
+
+export async function renameAgentSession(id: string, title: string): Promise<AgentSessionItem> {
+  return put<AgentSessionItem>(`/agent/sessions/${id}`, { title })
+}
+
+export async function deleteAgentSession(id: string): Promise<void> {
+  return del(`/agent/sessions/${id}`)
 }

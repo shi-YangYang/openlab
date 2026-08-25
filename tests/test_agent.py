@@ -1,13 +1,19 @@
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app import config, database
 from app.agent import agent as agent_module
 from app.agent import sessions
 from app.agent.tools import get_tools, is_dangerous
 
 
 @pytest.fixture(autouse=True)
-def _clear_sessions():
+def _setup_db(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(config.settings, "data_dir", data_dir)
+    monkeypatch.setattr(config.settings, "papers_dir", data_dir / "papers")
+    monkeypatch.setattr(config.settings, "db_path", data_dir / "openlab.db")
+    database.init_db()
     sessions.clear_sessions()
     yield
     sessions.clear_sessions()
