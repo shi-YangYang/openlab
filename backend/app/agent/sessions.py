@@ -20,6 +20,7 @@ from langchain_core.messages import (
 )
 
 from .. import database
+from .sandbox import clear_all_sandboxes, delete_sandbox
 
 
 class Session:
@@ -98,7 +99,10 @@ def update_title(session_id: str, title: str) -> Optional[Dict[str, Any]]:
 
 def delete_session(session_id: str) -> bool:
     _cache.pop(session_id, None)
-    return database.delete_agent_session(session_id)
+    deleted = database.delete_agent_session(session_id)
+    if deleted:
+        delete_sandbox(session_id)
+    return deleted
 
 
 def save_messages(session: Session) -> None:
@@ -162,3 +166,4 @@ def get_session_detail(session_id: str) -> Optional[Dict[str, Any]]:
 def clear_sessions() -> None:
     _cache.clear()
     database.clear_agent_sessions()
+    clear_all_sandboxes()

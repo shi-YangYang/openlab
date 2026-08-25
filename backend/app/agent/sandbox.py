@@ -10,6 +10,7 @@ container-based backend (e.g. Docker) later only requires reimplementing
 ``run_python`` / ``run_shell`` / ``sandbox_dir``.
 """
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -125,3 +126,13 @@ def run_shell(
     command: str, session_id: str, timeout: Optional[float] = None
 ) -> Dict[str, Any]:
     return _default_sandbox.run_shell(command, session_id, timeout)
+
+
+def delete_sandbox(session_id: str) -> None:
+    """Remove a session's sandbox directory, if it exists."""
+    shutil.rmtree(str(settings.data_dir / "sandbox" / str(session_id)), ignore_errors=True)
+
+
+def clear_all_sandboxes() -> None:
+    """Remove the entire sandbox root directory."""
+    shutil.rmtree(str(settings.data_dir / "sandbox"), ignore_errors=True)
