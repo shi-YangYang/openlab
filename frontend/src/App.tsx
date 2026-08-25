@@ -15,13 +15,14 @@ import SearchHistoryList from './components/SearchHistoryList'
 import InnovationHistoryList from './components/InnovationHistoryList'
 import LlmConfigForm from './components/LlmConfigForm'
 import ServersPage from './components/ServersPage'
+import ServerDetailPage from './components/ServerDetailPage'
 import AnalysisModal from './components/AnalysisModal'
 import ReviewModal from './components/ReviewModal'
 import InnovationModal from './components/InnovationModal'
 import ExperimentModal from './components/ExperimentModal'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
 import { searchPapers, searchTopic } from './api'
-import type { AnalysisRecord, Paper, SearchHistoryDetail } from './types'
+import type { AnalysisRecord, Paper, SearchHistoryDetail, Server } from './types'
 
 const { Header, Content } = Layout
 
@@ -47,6 +48,7 @@ export default function App() {
   const [innovationOpen, setInnovationOpen] = useState(false)
   const [experimentIds, setExperimentIds] = useState<string[]>([])
   const [experimentOpen, setExperimentOpen] = useState(false)
+  const [selectedServer, setSelectedServer] = useState<Server | null>(null)
 
   const openAnalyze = useCallback((arxivId: string) => {
     setAnalyzeTarget(arxivId)
@@ -135,7 +137,11 @@ export default function App() {
           mode="horizontal"
           selectedKeys={[page]}
           items={MENU_ITEMS}
-          onClick={(e) => setPage(e.key as PageKey)}
+          onClick={(e) => {
+            const key = e.key as PageKey
+            setPage(key)
+            if (key !== 'servers') setSelectedServer(null)
+          }}
           style={{ flex: 1, minWidth: 0 }}
         />
       </Header>
@@ -187,7 +193,15 @@ export default function App() {
           />
         )}
 
-        {page === 'servers' && <ServersPage />}
+        {page === 'servers' &&
+          (selectedServer ? (
+            <ServerDetailPage
+              server={selectedServer}
+              onBack={() => setSelectedServer(null)}
+            />
+          ) : (
+            <ServersPage onOpenDetail={setSelectedServer} />
+          ))}
 
         {page === 'settings' && (
           <Card title="LLM 配置">

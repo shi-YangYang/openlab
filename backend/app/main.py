@@ -1,16 +1,26 @@
 """FastAPI application entry point."""
+import re
 import shlex
+import shutil
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, List, Optional
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
-from . import analysis, database, downloader, experiment, export, innovation, servers, ssh
+from . import analysis, database, downloader, experiment, export, innovation, monitor, servers, ssh
 from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
@@ -26,6 +36,8 @@ from .schemas import (
     CloneResponse,
     DownloadRequest,
     DownloadResponse,
+    ExecRequest,
+    ExecResponse,
     ExperimentRecord,
     ExperimentRequest,
     LLMConfig,
@@ -36,6 +48,7 @@ from .schemas import (
     InnovationHistoryItem,
     InnovationRecord,
     InnovationRequest,
+    MonitorResponse,
     Paper,
     PaperRecord,
     ReviewRecord,
@@ -49,7 +62,6 @@ from .schemas import (
     TestConnectionResponse,
     TopicSearchRequest,
     TopicSearchResponse,
-    UploadRequest,
     UploadResponse,
 )
 
@@ -568,15 +580,6 @@ async def export_experiment(experiment_id: int) -> Response:
     )
 
 
-MONITOR_COMMANDS = {
-    "nvidia-smi": "nvidia-smi",
-    "free -h": "free -h",
-    "df -h": "df -h",
-    "uptime": "uptime",
-    "ps aux --sort=-%mem | head": "ps aux --sort=-%mem | head",
-}
-
-
 def _require_server(server_id: str) -> dict:
     server = servers.get_server(server_id)
     if server is None:
@@ -629,21 +632,85 @@ async def deploy_clone(server_id: str, req: CloneRequest) -> dict:
 
 
 @app.post("/api/servers/{server_id}/deploy/upload", response_model=UploadResponse)
-async def deploy_upload(server_id: str, req: UploadRequest) -> dict:
+async def deploy_upload(server_id: str, request: Request) -> dict:
     server = _require_server(server_id)
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        return await _deploy_upload_files(server, request)
     try:
-        return ssh.upload(server, req.local_path, req.remote_path)
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 或 multipart 表单")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    local_path = (body.get("local_path") or "").strip()
+    remote_path = (body.get("remote_path") or "").strip()
+    if not local_path:
+        raise HTTPException(status_code=400, detail="local_path must not be empty")
+    try:
+        return ssh.upload(server, local_path, remote_path)
     except ssh.SSHError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
 
-@app.post("/api/servers/{server_id}/monitor")
+_DRIVE_PREFIX_RE = re.compile(r"^[a-zA-Z]:$")
+
+
+def _safe_rel_path(name: str) -> str:
+    parts = [
+        part
+        for part in name.replace("\\", "/").split("/")
+        if part not in ("", ".", "..") and not _DRIVE_PREFIX_RE.match(part)
+    ]
+    return "/".join(parts) if parts else "upload"
+
+
+def _resolve_upload_target(tmpdir: Path, rel: str) -> Path:
+    root = tmpdir.resolve()
+    target = (tmpdir / rel).resolve()
+    if not target.is_relative_to(root):
+        raise HTTPException(status_code=400, detail=f"非法文件名: {rel}")
+    return target
+
+
+async def _deploy_upload_files(server: dict, request: Request) -> dict:
+    form = await request.form()
+    remote_path = str(form.get("remote_path") or "").strip()
+    files = form.getlist("files")
+    if not remote_path:
+        raise HTTPException(status_code=400, detail="remote_path must not be empty")
+    if not files:
+        raise HTTPException(status_code=400, detail="未选择任何文件")
+    tmpdir = Path(tempfile.mkdtemp(prefix="openlab-upload-"))
+    try:
+        for item in files:
+            if not hasattr(item, "read"):
+                continue
+            rel = _safe_rel_path(getattr(item, "filename", "") or "upload")
+            target = _resolve_upload_target(tmpdir, rel)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(await item.read())
+        try:
+            return ssh.upload(server, str(tmpdir), remote_path)
+        except ssh.SSHError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+@app.post("/api/servers/{server_id}/exec", response_model=ExecResponse)
+async def exec_server(server_id: str, req: ExecRequest) -> dict:
+    server = _require_server(server_id)
+    if not req.command.strip():
+        raise HTTPException(status_code=400, detail="command must not be empty")
+    try:
+        output = ssh.exec_command(server, req.command)
+    except ssh.SSHError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"output": output}
+
+
+@app.post("/api/servers/{server_id}/monitor", response_model=MonitorResponse)
 async def monitor_server(server_id: str) -> dict:
     server = _require_server(server_id)
-    result: dict = {}
-    for name, command in MONITOR_COMMANDS.items():
-        try:
-            result[name] = ssh.exec_command(server, command)
-        except ssh.SSHError as exc:
-            result[name] = f"执行失败: {exc}"
-    return result
+    return monitor.collect(server)

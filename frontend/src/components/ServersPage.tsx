@@ -3,7 +3,6 @@ import {
   App as AntApp,
   Button,
   Card,
-  Divider,
   Form,
   Input,
   InputNumber,
@@ -11,7 +10,6 @@ import {
   Popconfirm,
   Select,
   Space,
-  Spin,
   Table,
   Tag,
   Typography,
@@ -21,22 +19,17 @@ import {
   ApiOutlined,
   DeleteOutlined,
   EditOutlined,
-  MonitorOutlined,
+  EyeOutlined,
   PlusOutlined,
-  ReloadOutlined,
-  RocketOutlined,
 } from '@ant-design/icons'
 import {
   createServer,
   deleteServer,
-  deployClone,
-  deployUpload,
   listServers,
-  monitorServer,
   testServer,
   updateServer,
 } from '../api'
-import type { MonitorResult, Server, ServerAuthType, ServerInput } from '../types'
+import type { Server, ServerAuthType, ServerInput } from '../types'
 
 interface ServerFormValues {
   name: string
@@ -48,186 +41,16 @@ interface ServerFormValues {
   private_key?: string
 }
 
-interface CloneFormValues {
-  repo_url: string
-  target_dir: string
-}
-
-interface UploadFormValues {
-  local_path: string
-  remote_path: string
-}
-
 const AUTH_META: Record<string, { color: string; label: string }> = {
   password: { color: 'blue', label: '密码' },
   key: { color: 'green', label: '密钥' },
 }
 
-function DeployModal({ server, onClose }: { server: Server; onClose: () => void }) {
-  const { message } = AntApp.useApp()
-  const [cloneForm] = Form.useForm<CloneFormValues>()
-  const [uploadForm] = Form.useForm<UploadFormValues>()
-  const [cloning, setCloning] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [cloneOutput, setCloneOutput] = useState('')
-  const [uploadResult, setUploadResult] = useState('')
-
-  const handleClone = async (values: CloneFormValues) => {
-    setCloning(true)
-    setCloneOutput('')
-    try {
-      const res = await deployClone(server.id, values)
-      setCloneOutput(res.output)
-      message.success('git clone 已执行')
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '部署失败')
-    } finally {
-      setCloning(false)
-    }
-  }
-
-  const handleUpload = async (values: UploadFormValues) => {
-    setUploading(true)
-    setUploadResult('')
-    try {
-      const res = await deployUpload(server.id, values)
-      setUploadResult(`上传完成，共 ${res.files} 个文件`)
-      message.success('上传完成')
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '上传失败')
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  return (
-    <Modal title={`部署到 ${server.name}`} open onCancel={onClose} footer={null} width={720}>
-      <Typography.Title level={5}>git clone</Typography.Title>
-      <Form form={cloneForm} layout="vertical" onFinish={handleClone}>
-        <Form.Item
-          name="repo_url"
-          label="仓库地址"
-          rules={[{ required: true, message: '请输入仓库地址' }]}
-        >
-          <Input placeholder="https://github.com/org/repo.git" />
-        </Form.Item>
-        <Form.Item
-          name="target_dir"
-          label="目标目录"
-          rules={[{ required: true, message: '请输入目标目录' }]}
-        >
-          <Input placeholder="/home/user/project" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" loading={cloning}>
-          执行 git clone
-        </Button>
-      </Form>
-      {cloneOutput && (
-        <pre
-          style={{
-            marginTop: 12,
-            padding: 8,
-            background: '#f5f5f5',
-            maxHeight: 240,
-            overflow: 'auto',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {cloneOutput}
-        </pre>
-      )}
-
-      <Divider />
-
-      <Typography.Title level={5}>SFTP 上传</Typography.Title>
-      <Form form={uploadForm} layout="vertical" onFinish={handleUpload}>
-        <Form.Item
-          name="local_path"
-          label="本地路径（文件或目录）"
-          rules={[{ required: true, message: '请输入本地路径' }]}
-        >
-          <Input placeholder="E:\\gitTools\\openlab\\backend" />
-        </Form.Item>
-        <Form.Item
-          name="remote_path"
-          label="远程路径"
-          rules={[{ required: true, message: '请输入远程路径' }]}
-        >
-          <Input placeholder="/home/user/project" />
-        </Form.Item>
-        <Button type="primary" htmlType="submit" loading={uploading}>
-          开始上传
-        </Button>
-      </Form>
-      {uploadResult && (
-        <Typography.Text style={{ display: 'block', marginTop: 12 }}>
-          {uploadResult}
-        </Typography.Text>
-      )}
-    </Modal>
-  )
+interface ServersPageProps {
+  onOpenDetail: (server: Server) => void
 }
 
-function MonitorModal({ server, onClose }: { server: Server; onClose: () => void }) {
-  const { message } = AntApp.useApp()
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<MonitorResult | null>(null)
-
-  const run = useCallback(async () => {
-    setLoading(true)
-    setResult(null)
-    try {
-      setResult(await monitorServer(server.id))
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '监控失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [server.id, message])
-
-  useEffect(() => {
-    void run()
-  }, [run])
-
-  return (
-    <Modal
-      title={`监控 ${server.name}`}
-      open
-      onCancel={onClose}
-      footer={
-        <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void run()}>
-          重新执行
-        </Button>
-      }
-      width={860}
-    >
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '24px 0' }}>
-          <Spin tip="执行监控命令中..." />
-        </div>
-      ) : result ? (
-        Object.entries(result).map(([name, output]) => (
-          <Card key={name} size="small" title={name} style={{ marginBottom: 12 }}>
-            <pre
-              style={{
-                margin: 0,
-                maxHeight: 240,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {output}
-            </pre>
-          </Card>
-        ))
-      ) : (
-        <Typography.Text type="secondary">暂无监控结果。</Typography.Text>
-      )}
-    </Modal>
-  )
-}
-
-export default function ServersPage() {
+export default function ServersPage({ onOpenDetail }: ServersPageProps) {
   const { message } = AntApp.useApp()
   const [items, setItems] = useState<Server[]>([])
   const [loading, setLoading] = useState(false)
@@ -237,8 +60,6 @@ export default function ServersPage() {
   const [form] = Form.useForm<ServerFormValues>()
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<string>('')
-  const [deployTarget, setDeployTarget] = useState<Server | null>(null)
-  const [monitorTarget, setMonitorTarget] = useState<Server | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -367,9 +188,20 @@ export default function ServersPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 320,
+      width: 300,
       render: (_: unknown, r) => (
         <Space size={4} wrap>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
+            编辑
+          </Button>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => onOpenDetail(r)}>
+            详情
+          </Button>
+          <Popconfirm title="确认删除该服务器？" onConfirm={() => void handleDelete(r)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
           <Button
             size="small"
             loading={testingId === r.id}
@@ -378,20 +210,6 @@ export default function ServersPage() {
           >
             测试
           </Button>
-          <Button size="small" icon={<RocketOutlined />} onClick={() => setDeployTarget(r)}>
-            部署
-          </Button>
-          <Button size="small" icon={<MonitorOutlined />} onClick={() => setMonitorTarget(r)}>
-            监控
-          </Button>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
-            编辑
-          </Button>
-          <Popconfirm title="确认删除该服务器？" onConfirm={() => void handleDelete(r)}>
-            <Button size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
         </Space>
       ),
     },
@@ -489,13 +307,6 @@ export default function ServersPage() {
           </Form.Item>
         </Form>
       </Modal>
-
-      {deployTarget && (
-        <DeployModal server={deployTarget} onClose={() => setDeployTarget(null)} />
-      )}
-      {monitorTarget && (
-        <MonitorModal server={monitorTarget} onClose={() => setMonitorTarget(null)} />
-      )}
     </Card>
   )
 }

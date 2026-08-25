@@ -1,5 +1,5 @@
 """Pydantic request/response schemas."""
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -293,3 +293,41 @@ class UploadRequest(BaseModel):
 class UploadResponse(BaseModel):
     message: str
     files: int
+
+
+class ExecRequest(BaseModel):
+    command: str
+
+
+class ExecResponse(BaseModel):
+    output: str
+
+
+class GpuInfo(BaseModel):
+    index: int
+    name: str
+    utilization: int
+    memory_used_mb: int
+    memory_total_mb: int
+
+
+class MemoryInfo(BaseModel):
+    used_mb: int
+    total_mb: int
+
+
+class DiskInfo(BaseModel):
+    filesystem: str
+    size: str
+    used: str
+    use_percent: Optional[int] = None
+    mount: str
+
+
+class MonitorResponse(BaseModel):
+    gpu: List[GpuInfo] = Field(default_factory=list)
+    load: List[float] = Field(default_factory=list)
+    memory: Optional[MemoryInfo] = None
+    disk: List[DiskInfo] = Field(default_factory=list)
+    processes: List[str] = Field(default_factory=list)
+    raw: Dict[str, str] = Field(default_factory=dict)

@@ -3,13 +3,14 @@ import type {
   AnalysisRecord,
   CloneResult,
   DownloadResult,
+  ExecResult,
   ExperimentRecord,
   InnovationHistoryItem,
   InnovationRecord,
   LlmConfig,
   LlmPreset,
   LlmTestResult,
-  MonitorResult,
+  MonitorData,
   Paper,
   PaperRecord,
   ReviewRecord,
@@ -271,6 +272,31 @@ export async function deployUpload(
   return post<UploadResult>(`/servers/${id}/deploy/upload`, body)
 }
 
-export async function monitorServer(id: string): Promise<MonitorResult> {
-  return post<MonitorResult>(`/servers/${id}/monitor`, {})
+export async function deployUploadFiles(
+  id: string,
+  files: File[],
+  remotePath: string,
+): Promise<UploadResult> {
+  const form = new FormData()
+  for (const file of files) {
+    const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+    form.append('files', file, rel)
+  }
+  form.append('remote_path', remotePath)
+  const res = await fetch(`${BASE}/servers/${id}/deploy/upload`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) {
+    await throwForStatus(res)
+  }
+  return res.json()
+}
+
+export async function monitorServer(id: string): Promise<MonitorData> {
+  return post<MonitorData>(`/servers/${id}/monitor`, {})
+}
+
+export async function execCommand(id: string, command: string): Promise<ExecResult> {
+  return post<ExecResult>(`/servers/${id}/exec`, { command })
 }

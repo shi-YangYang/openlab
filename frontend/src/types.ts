@@ -223,4 +223,36 @@ export interface UploadResult {
   files: number
 }
 
-export type MonitorResult = Record<string, string>
+export interface GpuInfo {
+  index: number
+  name: string
+  utilization: number
+  memory_used_mb: number
+  memory_total_mb: number
+}
+
+export interface MemoryInfo {
+  used_mb: number
+  total_mb: number
+}
+
+export interface DiskInfo {
+  filesystem: string
+  size: string
+  used: string
+  use_percent?: number | null
+  mount: string
+}
+
+export interface MonitorData {
+  gpu: GpuInfo[]
+  load: number[]
+  memory: MemoryInfo | null
+  disk: DiskInfo[]
+  processes: string[]
+  raw: Record<string, string>
+}
+
+export interface ExecResult {
+  output: string
+}

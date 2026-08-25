@@ -1,9 +1,11 @@
 import io
 import json
+import re
 
 import pytest
 
 from app import config, database, servers, ssh
+from app.main import _resolve_upload_target, _safe_rel_path
 
 
 def _payload(**overrides):
@@ -188,40 +190,204 @@ def test_deploy_upload_mock(client, monkeypatch):
     assert captured["local"] == "C:/code/app"
 
 
-def test_monitor_returns_all_commands(client, monkeypatch):
+def test_monitor_structured(client, monkeypatch):
     created = _create(client)
-    calls = []
+    from app import monitor
 
     def fake_exec(server, command, timeout=60.0):
-        calls.append(command)
-        return f"output of {command}"
+        return {
+            monitor.GPU_QUERY: "0, NVIDIA A100, 85, 20000, 80000\n",
+            monitor.MEMORY_COMMAND: (
+                "              total        used        free      shared  buff/cache   available\n"
+                "Mem:          32000       12345        1000         100       18655       19000\n"
+            ),
+            monitor.DISK_COMMAND: (
+                "Filesystem      Size  Used Avail Use% Mounted on\n"
+                "/dev/sda1       1.0T  500G  400G  56% /\n"
+            ),
+            monitor.LOAD_COMMAND: "1.20 0.80 0.50 1/123 4567\n",
+            monitor.PROCESSES_COMMAND: "USER       PID %CPU %MEM\nroot         1  0.0  0.1\n",
+        }[command]
 
     monkeypatch.setattr(ssh, "exec_command", fake_exec)
 
     resp = client.post(f"/api/servers/{created['id']}/monitor")
     assert resp.status_code == 200
     data = resp.json()
-    for name in ("nvidia-smi", "free -h", "df -h", "uptime", "ps aux --sort=-%mem | head"):
-        assert name in data
-        assert data[name] == f"output of {name}"
+    assert data["gpu"][0]["name"] == "NVIDIA A100"
+    assert data["gpu"][0]["utilization"] == 85
+    assert data["memory"] == {"used_mb": 12345, "total_mb": 32000}
+    assert data["load"] == [1.2, 0.8, 0.5]
+    assert data["disk"][0]["mount"] == "/"
+    assert data["raw"] == {}
 
 
-def test_monitor_command_error_does_not_break(client, monkeypatch):
+def test_monitor_fallback_to_raw(client, monkeypatch):
     created = _create(client)
+    from app import monitor
 
-    def flaky_exec(server, command, timeout=60.0):
-        if command == "nvidia-smi":
-            raise ssh.SSHError("command not found")
+    def fake_exec(server, command, timeout=60.0):
+        if command == monitor.GPU_QUERY:
+            return "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver"
+        if command == monitor.GPU_RAW:
+            return "no gpu"
+        if command == monitor.MEMORY_COMMAND:
+            return "free: command not found"
+        if command == monitor.DISK_COMMAND:
+            return "df: command not found"
+        if command == monitor.LOAD_COMMAND:
+            return "cat: /proc/loadavg: No such file"
         return "ok"
 
-    monkeypatch.setattr(ssh, "exec_command", flaky_exec)
+    monkeypatch.setattr(ssh, "exec_command", fake_exec)
 
     resp = client.post(f"/api/servers/{created['id']}/monitor")
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) == 5
-    assert "执行失败" in data["nvidia-smi"]
-    assert data["uptime"] == "ok"
+    assert data["gpu"] == []
+    assert data["raw"]["gpu"] == "no gpu"
+    assert data["memory"] is None
+    assert "free" in data["raw"]["memory"]
+    assert data["load"] == []
+    assert "loadavg" in data["raw"]["load"]
+
+
+def test_exec_endpoint(client, monkeypatch):
+    created = _create(client)
+    captured = {}
+
+    def fake_exec(server, command, timeout=60.0):
+        captured["command"] = command
+        return "hello world"
+
+    monkeypatch.setattr(ssh, "exec_command", fake_exec)
+
+    resp = client.post(f"/api/servers/{created['id']}/exec", json={"command": "echo hi"})
+    assert resp.status_code == 200
+    assert resp.json()["output"] == "hello world"
+    assert captured["command"] == "echo hi"
+
+
+def test_exec_endpoint_empty_command(client):
+    created = _create(client)
+    resp = client.post(f"/api/servers/{created['id']}/exec", json={"command": "  "})
+    assert resp.status_code == 400
+
+
+def test_exec_endpoint_error_returns_502(client, monkeypatch):
+    created = _create(client)
+
+    def fail_exec(server, command, timeout=60.0):
+        raise ssh.SSHError("connect failed: bad host")
+
+    monkeypatch.setattr(ssh, "exec_command", fail_exec)
+    resp = client.post(f"/api/servers/{created['id']}/exec", json={"command": "ls"})
+    assert resp.status_code == 502
+    assert "bad host" in resp.json()["detail"]
+
+
+def test_deploy_upload_multipart(client, monkeypatch):
+    created = _create(client)
+    captured = {}
+
+    def fake_upload(server, local_path, remote_path, timeout=60.0):
+        captured["local"] = local_path
+        captured["remote"] = remote_path
+        from pathlib import Path
+
+        root = Path(local_path)
+        captured["files"] = sorted(
+            str(p.relative_to(root)).replace("\\", "/")
+            for p in root.rglob("*")
+            if p.is_file()
+        )
+        return {"message": "上传完成", "files": len(captured["files"])}
+
+    monkeypatch.setattr(ssh, "upload", fake_upload)
+
+    resp = client.post(
+        f"/api/servers/{created['id']}/deploy/upload",
+        data={"remote_path": "/remote/app"},
+        files=[
+            ("files", ("a.txt", b"content-a")),
+            ("files", ("sub/b.txt", b"content-b")),
+        ],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["files"] == 2
+    assert captured["remote"] == "/remote/app"
+    assert captured["files"] == ["a.txt", "sub/b.txt"]
+
+
+def test_deploy_upload_multipart_missing_remote_path(client):
+    created = _create(client)
+    resp = client.post(
+        f"/api/servers/{created['id']}/deploy/upload",
+        data={},
+        files=[("files", ("a.txt", b"x"))],
+    )
+    assert resp.status_code == 400
+
+
+def test_safe_rel_path_normalizes_malicious_names():
+    assert _safe_rel_path("/etc/passwd") == "etc/passwd"
+    assert _safe_rel_path("../../evil.txt") == "evil.txt"
+    assert _safe_rel_path("C:\\Windows\\x") == "Windows/x"
+    assert _safe_rel_path("C:/Windows/x") == "Windows/x"
+    assert _safe_rel_path("\\\\host\\share") == "host/share"
+    assert _safe_rel_path("//host/share") == "host/share"
+    assert _safe_rel_path("a/b.txt") == "a/b.txt"
+    assert _safe_rel_path("sub/b.txt") == "sub/b.txt"
+    assert _safe_rel_path("") == "upload"
+    assert _safe_rel_path("/") == "upload"
+    assert _safe_rel_path("C:") == "upload"
+
+
+def test_resolve_upload_target_rejects_escape(tmp_path):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_upload_target(tmp_path, "/etc/passwd")
+    assert exc_info.value.status_code == 400
+
+
+def test_deploy_upload_multipart_malicious_filenames_stay_in_tmpdir(client, monkeypatch):
+    created = _create(client)
+    captured = {}
+
+    def fake_upload(server, local_path, remote_path, timeout=60.0):
+        from pathlib import Path
+
+        root = Path(local_path).resolve()
+        captured["root"] = root
+        captured["files"] = sorted(
+            str(p.relative_to(root)).replace("\\", "/")
+            for p in root.rglob("*")
+            if p.is_file()
+        )
+        return {"message": "上传完成", "files": len(captured["files"])}
+
+    monkeypatch.setattr(ssh, "upload", fake_upload)
+
+    resp = client.post(
+        f"/api/servers/{created['id']}/deploy/upload",
+        data={"remote_path": "/remote/app"},
+        files=[
+            ("files", ("/etc/passwd", b"a")),
+            ("files", ("../../evil.txt", b"b")),
+            ("files", ("C:\\Windows\\x", b"c")),
+            ("files", ("\\\\host\\share", b"d")),
+        ],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["files"] == 4
+    files = captured["files"]
+    for rel in files:
+        parts = rel.split("/")
+        assert parts == [p for p in parts if p not in ("", ".", "..")]
+        assert not any(re.match(r"^[a-zA-Z]:$", p) for p in parts)
+    assert "etc/passwd" in files
+    assert "evil.txt" in files
 
 
 class _FakeChannel:
