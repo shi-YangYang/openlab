@@ -40,9 +40,10 @@ from .agent import (
 from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
-from .llm_config import get_effective_config, save_config
+from .llm_config import get_effective_config, load_config, save_config
 from .pdf import PdfExtractionError
 from .presets import LLM_PRESETS
+from .reasoning_efforts import guess_reasoning_efforts
 from .platforms import browser, sessions
 from .search.aggregator import search as aggregate_search
 from .schemas import (
@@ -67,8 +68,8 @@ from .schemas import (
     ExperimentRecord,
     ExperimentHistoryItem,
     ExperimentRequest,
-    LLMConfig,
-    LLMConfigUpdate,
+    LLMConfigResponse,
+    LLMModelInfo,
     LLMModelsRequest,
     LLMModelsResponse,
     LLMPreset,
@@ -447,20 +448,17 @@ async def llm_presets() -> List[dict]:
     return LLM_PRESETS
 
 
-@app.get("/api/llm/config", response_model=LLMConfig)
+@app.get("/api/llm/config", response_model=LLMConfigResponse)
 async def get_llm_config() -> dict:
-    return get_effective_config()
+    return load_config()
 
 
-@app.put("/api/llm/config", response_model=LLMConfig)
-async def update_llm_config(req: LLMConfigUpdate) -> dict:
-    save_config(
-        base_url=req.base_url,
-        api_key=req.api_key,
-        model=req.model,
-        reasoning_effort=req.reasoning_effort,
-    )
-    return get_effective_config()
+@app.put("/api/llm/config", response_model=LLMConfigResponse)
+async def update_llm_config(req: LLMConfigResponse) -> dict:
+    try:
+        return save_config(req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 def _redact(text: str, secret: str) -> str:
@@ -539,6 +537,99 @@ async def test_llm_connection(req: LLMTestRequest) -> dict:
     return LLMTestResponse(ok=True, message=summary, latency_ms=latency_ms)
 
 
+_CONTEXT_LENGTH_KEYS = (
+    "max_context_length",
+    "context_length",
+    "context_window",
+    "context_window_tokens",
+    "max_context_tokens",
+    "contextwindow",
+    "max_tokens",
+)
+
+
+def _to_int(value: Any) -> Optional[int]:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(float(text))
+        except ValueError:
+            return None
+    return None
+
+
+def _find_key(node: Any, target: str) -> Optional[Any]:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(key, str) and key.lower() == target:
+                return value
+        for value in node.values():
+            found = _find_key(value, target)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for value in node:
+            found = _find_key(value, target)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_context_length(item: Any) -> Optional[int]:
+    if not isinstance(item, dict):
+        return None
+    for key in _CONTEXT_LENGTH_KEYS:
+        value = _find_key(item, key)
+        parsed = _to_int(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+_REASONING_EFFORT_KEYS = (
+    "reasoning_efforts",
+    "supported_reasoning_efforts",
+    "reasoning_effort_options",
+    "reasoning_effort",
+)
+
+
+def _as_string_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        result: List[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text and text not in result:
+                result.append(text)
+        return result
+    text = str(value).strip()
+    if not text:
+        return []
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    return parts if parts else [text]
+
+
+def _extract_reasoning_efforts(item: Any) -> List[str]:
+    if not isinstance(item, dict):
+        return []
+    for key in _REASONING_EFFORT_KEYS:
+        value = _find_key(item, key)
+        result = _as_string_list(value)
+        if result:
+            return result
+    return []
+
+
 @app.post("/api/llm/models", response_model=LLMModelsResponse)
 async def llm_models(req: LLMModelsRequest) -> dict:
     base_url = (req.base_url or "").strip()
@@ -573,13 +664,26 @@ async def llm_models(req: LLMModelsRequest) -> dict:
         raise HTTPException(status_code=502, detail="返回内容不是有效 JSON")
 
     items = data.get("data") if isinstance(data, dict) else None
-    models: List[str] = []
+    models: List[dict] = []
     if isinstance(items, list):
         for item in items:
             if isinstance(item, dict) and isinstance(item.get("id"), str):
-                models.append(item["id"])
+                efforts = _extract_reasoning_efforts(item) or guess_reasoning_efforts(item["id"])
+                models.append(
+                    {
+                        "id": item["id"],
+                        "context_length": _extract_context_length(item),
+                        "reasoning_efforts": efforts,
+                    }
+                )
             elif isinstance(item, str):
-                models.append(item)
+                models.append(
+                    {
+                        "id": item,
+                        "context_length": None,
+                        "reasoning_efforts": guess_reasoning_efforts(item),
+                    }
+                )
     return {"models": models}
 
 
@@ -1072,7 +1176,12 @@ async def delete_agent_session(session_id: str) -> dict:
 @app.post("/api/agent/chat", response_model=AgentChatResponse)
 async def agent_chat(req: AgentChatRequest) -> dict:
     try:
-        return await run_chat(req.session_id, req.message)
+        return await run_chat(
+            req.session_id,
+            req.message,
+            model=req.model,
+            reasoning_effort=req.reasoning_effort,
+        )
     except AgentError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
     except Exception as exc:
@@ -1082,7 +1191,12 @@ async def agent_chat(req: AgentChatRequest) -> dict:
 @app.post("/api/agent/approve", response_model=AgentChatResponse)
 async def agent_approve(req: AgentApproveRequest) -> dict:
     try:
-        return await run_approve(req.session_id, req.approve)
+        return await run_approve(
+            req.session_id,
+            req.approve,
+            model=req.model,
+            reasoning_effort=req.reasoning_effort,
+        )
     except AgentError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
     except Exception as exc:

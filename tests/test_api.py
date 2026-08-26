@@ -417,7 +417,138 @@ def test_llm_models_endpoint(client, monkeypatch):
         json={"base_url": "https://api.openai.com/v1", "api_key": "sk-test"},
     )
     assert resp.status_code == 200
-    assert resp.json()["models"] == ["gpt-4o", "gpt-4o-mini"]
+    assert resp.json()["models"] == [
+        {"id": "gpt-4o", "context_length": None, "reasoning_efforts": []},
+        {"id": "gpt-4o-mini", "context_length": None, "reasoning_efforts": []},
+    ]
+
+
+def test_llm_models_endpoint_parses_context_length(client, monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "a", "max_context_length": 1048576},
+                    {"id": "b", "context_window": 128000},
+                    {"id": "c", "permission": [{"id": "x"}]},
+                    "plain-id",
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, headers=None):
+            return FakeResp()
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+
+    resp = client.post(
+        "/api/llm/models",
+        json={"base_url": "https://api.openai.com/v1", "api_key": "sk-test"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["models"] == [
+        {"id": "a", "context_length": 1048576, "reasoning_efforts": []},
+        {"id": "b", "context_length": 128000, "reasoning_efforts": []},
+        {"id": "c", "context_length": None, "reasoning_efforts": []},
+        {"id": "plain-id", "context_length": None, "reasoning_efforts": []},
+    ]
+
+
+def test_llm_models_endpoint_parses_reasoning_efforts(client, monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "a", "reasoning_efforts": ["low", "medium", "high"]},
+                    {"id": "b", "supported_reasoning_efforts": "low,medium"},
+                    {"id": "c", "reasoning_effort": "high"},
+                    {"id": "d", "reasoning_effort_options": []},
+                    {"id": "e"},
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, headers=None):
+            return FakeResp()
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+
+    resp = client.post(
+        "/api/llm/models",
+        json={"base_url": "https://api.openai.com/v1", "api_key": "sk-test"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["models"] == [
+        {"id": "a", "context_length": None, "reasoning_efforts": ["low", "medium", "high"]},
+        {"id": "b", "context_length": None, "reasoning_efforts": ["low", "medium"]},
+        {"id": "c", "context_length": None, "reasoning_efforts": ["high"]},
+        {"id": "d", "context_length": None, "reasoning_efforts": []},
+        {"id": "e", "context_length": None, "reasoning_efforts": []},
+    ]
+
+
+def test_llm_models_endpoint_guesses_reasoning_efforts(client, monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "o3-mini"},
+                    {"id": "deepseek-v4-pro"},
+                    {"id": "qwen3.8-max"},
+                    {"id": "gpt-4o"},
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, headers=None):
+            return FakeResp()
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+
+    resp = client.post(
+        "/api/llm/models",
+        json={"base_url": "https://api.openai.com/v1", "api_key": "sk-test"},
+    )
+    assert resp.status_code == 200
+    models = resp.json()["models"]
+    by_id = {m["id"]: m["reasoning_efforts"] for m in models}
+    assert by_id["o3-mini"] == ["low", "medium", "high"]
+    assert by_id["deepseek-v4-pro"] == ["low", "high", "max", "xhigh"]
+    assert by_id["qwen3.8-max"] == ["minimal", "low", "medium", "high", "xhigh"]
+    assert by_id["gpt-4o"] == []
 
 
 def test_llm_models_endpoint_error_status(client, monkeypatch):

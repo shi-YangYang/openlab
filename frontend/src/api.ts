@@ -11,7 +11,8 @@ import type {
   ExperimentRecord,
   InnovationHistoryItem,
   InnovationRecord,
-  LlmConfig,
+  LlmGroupsConfig,
+  LlmModelInfo,
   LlmPreset,
   LlmTestResult,
   MonitorData,
@@ -162,20 +163,24 @@ export async function getLlmPresets(): Promise<LlmPreset[]> {
   return get<LlmPreset[]>('/llm/presets')
 }
 
-export async function getLlmConfig(): Promise<LlmConfig> {
-  return get<LlmConfig>('/llm/config')
+export async function getLlmConfig(): Promise<LlmGroupsConfig> {
+  return get<LlmGroupsConfig>('/llm/config')
 }
 
-export async function saveLlmConfig(config: Partial<LlmConfig>): Promise<LlmConfig> {
-  return put<LlmConfig>('/llm/config', config)
+export async function saveLlmConfig(config: LlmGroupsConfig): Promise<LlmGroupsConfig> {
+  return put<LlmGroupsConfig>('/llm/config', config)
 }
 
-export async function testLlmConnection(config: Partial<LlmConfig>): Promise<LlmTestResult> {
+export async function testLlmConnection(config: {
+  base_url?: string
+  api_key?: string
+  model?: string
+}): Promise<LlmTestResult> {
   return post<LlmTestResult>('/llm/test', config)
 }
 
-export async function getLlmModels(params: { base_url: string; api_key: string }): Promise<string[]> {
-  const res = await post<{ models: string[] }>('/llm/models', params)
+export async function getLlmModels(params: { base_url: string; api_key: string }): Promise<LlmModelInfo[]> {
+  const res = await post<{ models: LlmModelInfo[] }>('/llm/models', params)
   return res.models
 }
 
@@ -379,15 +384,29 @@ export async function execCommand(id: string, command: string): Promise<ExecResu
 export async function agentChat(
   sessionId: string | null,
   message: string,
+  model?: string,
+  reasoningEffort?: string,
 ): Promise<AgentChatResult> {
-  return post<AgentChatResult>('/agent/chat', { session_id: sessionId, message })
+  return post<AgentChatResult>('/agent/chat', {
+    session_id: sessionId,
+    message,
+    model,
+    reasoning_effort: reasoningEffort,
+  })
 }
 
 export async function agentApprove(
   sessionId: string,
   approve: boolean,
+  model?: string,
+  reasoningEffort?: string,
 ): Promise<AgentChatResult> {
-  return post<AgentChatResult>('/agent/approve', { session_id: sessionId, approve })
+  return post<AgentChatResult>('/agent/approve', {
+    session_id: sessionId,
+    approve,
+    model,
+    reasoning_effort: reasoningEffort,
+  })
 }
 
 export async function listAgentSessions(): Promise<AgentSessionItem[]> {

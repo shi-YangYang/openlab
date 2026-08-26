@@ -87,7 +87,11 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     updated_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     messages TEXT DEFAULT '[]',
     running INTEGER DEFAULT 0,
-    status TEXT
+    status TEXT,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    last_input_tokens INTEGER DEFAULT 0,
+    last_output_tokens INTEGER DEFAULT 0
 );
 """
 
@@ -120,6 +124,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("analyses", "message", "TEXT"),
         ("agent_sessions", "running", "INTEGER DEFAULT 0"),
         ("agent_sessions", "status", "TEXT"),
+        ("agent_sessions", "input_tokens", "INTEGER DEFAULT 0"),
+        ("agent_sessions", "output_tokens", "INTEGER DEFAULT 0"),
+        ("agent_sessions", "last_input_tokens", "INTEGER DEFAULT 0"),
+        ("agent_sessions", "last_output_tokens", "INTEGER DEFAULT 0"),
         ("papers", "source", "TEXT DEFAULT 'arxiv'"),
         ("papers", "url", "TEXT"),
         ("papers", "error", "TEXT"),
@@ -803,6 +811,10 @@ def get_agent_session(session_id: str) -> Optional[Dict[str, Any]]:
             return None
         data = _agent_session_item(row)
         data["messages"] = row["messages"] or "[]"
+        data["input_tokens"] = row["input_tokens"] or 0
+        data["output_tokens"] = row["output_tokens"] or 0
+        data["last_input_tokens"] = row["last_input_tokens"] or 0
+        data["last_output_tokens"] = row["last_output_tokens"] or 0
         return data
     finally:
         conn.close()
@@ -830,6 +842,36 @@ def save_agent_messages(session_id: str, messages: str) -> None:
         conn.execute(
             "UPDATE agent_sessions SET messages = ?, updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?",
             (messages, session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_agent_session_usage(
+    session_id: str, input_tokens: int, output_tokens: int
+) -> None:
+    """Accumulate token usage for a session (used after each LLM call)."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE agent_sessions SET input_tokens = input_tokens + ?, output_tokens = output_tokens + ?, updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?",
+            (int(input_tokens), int(output_tokens), session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_agent_session_last_usage(
+    session_id: str, input_tokens: int, output_tokens: int
+) -> None:
+    """Record the most recent LLM call's token usage for a session."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE agent_sessions SET last_input_tokens = ?, last_output_tokens = ?, updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = ?",
+            (int(input_tokens), int(output_tokens), session_id),
         )
         conn.commit()
     finally:

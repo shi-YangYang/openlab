@@ -124,18 +124,25 @@ class LLMPreset(BaseModel):
     default_model: str
 
 
-class LLMConfig(BaseModel):
-    base_url: str
-    api_key: str
-    model: str
+class LLMModelInfo(BaseModel):
+    id: str
+    context_length: Optional[int] = None
+    reasoning_efforts: Optional[List[str]] = None
+
+
+class LLMGroup(BaseModel):
+    id: str
+    name: str = ""
+    base_url: str = ""
+    api_key: str = ""
+    models: List[LLMModelInfo] = Field(default_factory=list)
+    default_model: str = ""
     reasoning_effort: Optional[str] = None
 
 
-class LLMConfigUpdate(BaseModel):
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    model: Optional[str] = None
-    reasoning_effort: Optional[str] = None
+class LLMConfigResponse(BaseModel):
+    active_group: str
+    groups: List[LLMGroup] = Field(default_factory=list)
 
 
 class LLMModelsRequest(BaseModel):
@@ -144,7 +151,7 @@ class LLMModelsRequest(BaseModel):
 
 
 class LLMModelsResponse(BaseModel):
-    models: List[str] = Field(default_factory=list)
+    models: List[LLMModelInfo] = Field(default_factory=list)
 
 
 class LLMTestRequest(BaseModel):
@@ -423,6 +430,8 @@ class AgentPendingApproval(BaseModel):
 class AgentChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str
+    model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
 
 
 class AgentChatResponse(BaseModel):
@@ -435,6 +444,8 @@ class AgentChatResponse(BaseModel):
 class AgentApproveRequest(BaseModel):
     session_id: str
     approve: bool
+    model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
 
 
 class AgentSessionItem(BaseModel):
@@ -461,3 +472,4 @@ class AgentSessionMessage(BaseModel):
 
 class AgentSessionDetail(AgentSessionItem):
     messages: List[AgentSessionMessage] = Field(default_factory=list)
+    usage: Optional[Dict[str, int]] = None

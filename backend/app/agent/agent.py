@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
+from .. import database
 from ..llm_config import get_effective_config
 from . import tools as agent_tools
 from .sessions import (
@@ -114,21 +115,32 @@ def _generate_title(message: str, max_len: int = AUTO_TITLE_MAX_LEN) -> str:
     return text[:max_len]
 
 
-def build_llm() -> ChatOpenAI:
+def build_llm(
+    model: Optional[str] = None, reasoning_effort: Optional[str] = None
+) -> ChatOpenAI:
     cfg = get_effective_config()
     if not cfg["api_key"]:
         raise AgentError("LLM_API_KEY is not configured", 400)
+    model_kwargs = {}
+    effort = reasoning_effort if reasoning_effort else cfg.get("reasoning_effort")
+    if effort:
+        model_kwargs["reasoning_effort"] = effort
     return ChatOpenAI(
         base_url=cfg["base_url"],
         api_key=cfg["api_key"],
-        model=cfg["model"],
+        model=model or cfg["model"],
         temperature=0.2,
         request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+        model_kwargs=model_kwargs,
     )
 
 
-def _build_bound_llm():
-    return build_llm().bind_tools(agent_tools.get_tools())
+def _build_bound_llm(
+    model: Optional[str] = None, reasoning_effort: Optional[str] = None
+):
+    return build_llm(model=model, reasoning_effort=reasoning_effort).bind_tools(
+        agent_tools.get_tools()
+    )
 
 
 def _tool_call_to_dict(tool_call: Any) -> Dict[str, Any]:
@@ -161,12 +173,25 @@ async def _run_loop(
     log: List[Dict[str, Any]],
     max_steps: int = MAX_STEPS,
     steps_used: int = 0,
+    model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Dict[str, Any]:
     steps = steps_used
     while steps < max_steps:
         set_status(session.session_id, "thinking")
         response: AIMessage = await llm.ainvoke(session.messages)
         session.messages.append(response)
+
+        usage = getattr(response, "usage_metadata", None) or {}
+        input_tokens = usage.get("input_tokens") or 0
+        output_tokens = usage.get("output_tokens") or 0
+        if input_tokens or output_tokens:
+            database.add_agent_session_usage(
+                session.session_id, int(input_tokens), int(output_tokens)
+            )
+            database.set_agent_session_last_usage(
+                session.session_id, int(input_tokens), int(output_tokens)
+            )
 
         tool_calls = response.tool_calls or []
         if not tool_calls:
@@ -184,7 +209,9 @@ async def _run_loop(
                 session.pending = {
                     "tool_calls": [
                         _tool_call_to_dict(tc) for tc in tool_calls[index:]
-                    ]
+                    ],
+                    "model": model,
+                    "reasoning_effort": reasoning_effort,
                 }
                 return {
                     "reply": None,
@@ -204,7 +231,11 @@ async def _run_loop(
 
 
 async def run_chat(
-    session_id: Optional[str], message: str, max_steps: int = MAX_STEPS
+    session_id: Optional[str],
+    message: str,
+    max_steps: int = MAX_STEPS,
+    model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Dict[str, Any]:
     session = get_or_create(session_id)
     if session.pending is not None:
@@ -221,9 +252,16 @@ async def run_chat(
     save_messages(session)  # persist user message + title before the long loop
 
     set_running(session.session_id, True)
-    llm = _build_bound_llm()
+    llm = _build_bound_llm(model=model, reasoning_effort=reasoning_effort)
     try:
-        result = await _run_loop(session, llm, [], max_steps=max_steps)
+        result = await _run_loop(
+            session,
+            llm,
+            [],
+            max_steps=max_steps,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
     finally:
         set_running(session.session_id, False)
         set_status(session.session_id, "")
@@ -235,7 +273,11 @@ async def run_chat(
 
 
 async def run_approve(
-    session_id: str, approve: bool, max_steps: int = MAX_STEPS
+    session_id: str,
+    approve: bool,
+    max_steps: int = MAX_STEPS,
+    model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Dict[str, Any]:
     session = get_session(session_id)
     if session is None:
@@ -245,6 +287,8 @@ async def run_approve(
 
     log: List[Dict[str, Any]] = []
     pending_calls = session.pending["tool_calls"]
+    model = model or session.pending.get("model")
+    reasoning_effort = reasoning_effort or session.pending.get("reasoning_effort")
     session.pending = None
 
     set_running(session_id, True)
@@ -267,8 +311,15 @@ async def run_approve(
                 }
             log.append(entry)
 
-        llm = _build_bound_llm()
-        result = await _run_loop(session, llm, log, max_steps=max_steps)
+        llm = _build_bound_llm(model=model, reasoning_effort=reasoning_effort)
+        result = await _run_loop(
+            session,
+            llm,
+            log,
+            max_steps=max_steps,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
     finally:
         set_running(session_id, False)
         set_status(session_id, "")

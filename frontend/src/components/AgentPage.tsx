@@ -8,6 +8,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Spin,
   Tag,
@@ -28,6 +29,7 @@ import {
   createAgentSession,
   deleteAgentSession,
   getAgentSession,
+  getLlmConfig,
   listAgentSessions,
   renameAgentSession,
 } from '../api'
@@ -35,7 +37,9 @@ import type {
   AgentChatResult,
   AgentPendingApproval,
   AgentSessionItem,
+  AgentSessionUsage,
   AgentToolCall,
+  LlmModelInfo,
 } from '../types'
 
 interface Turn {
@@ -87,6 +91,13 @@ export default function AgentPage() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [models, setModels] = useState<LlmModelInfo[]>([])
+  const [model, setModel] = useState<string | undefined>(undefined)
+  const [reasoningEffort, setReasoningEffort] = useState<string | undefined>(undefined)
+  const [usage, setUsage] = useState<AgentSessionUsage | null>(null)
+  const [groupDefaults, setGroupDefaults] = useState<{ model: string }>({
+    model: '',
+  })
   const renamingRef = useRef<string | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const pollTimerRef = useRef<number | null>(null)
@@ -123,6 +134,7 @@ export default function AgentPage() {
       try {
         const detail = await getAgentSession(id)
         if (currentIdRef.current !== id) return
+        setUsage(detail.usage ?? null)
         setMessages(
           detail.messages.map((m) => ({
             role: m.role === 'user' ? 'user' : 'assistant',
@@ -147,6 +159,39 @@ export default function AgentPage() {
   )
 
   useEffect(() => stopPolling, [stopPolling])
+
+  const resetSelections = useCallback(() => {
+    setModel(groupDefaults.model)
+    setReasoningEffort(undefined)
+  }, [groupDefaults])
+
+  const handleModelChange = (value: string | undefined) => {
+    setModel(value)
+    setReasoningEffort(undefined)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    getLlmConfig()
+      .then((cfg) => {
+        if (cancelled) return
+        const group = cfg.groups.find((g) => g.id === cfg.active_group) ?? cfg.groups[0]
+        if (group) {
+          setModels(group.models)
+          const defaultModelId = group.default_model || group.models[0]?.id || ''
+          const defaults = {
+            model: defaultModelId,
+          }
+          setGroupDefaults(defaults)
+          setModel(defaults.model)
+          setReasoningEffort(undefined)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -198,6 +243,7 @@ export default function AgentPage() {
     setStatusLabel('')
     setCurrentId(id)
     setPendingApproval(null)
+    resetSelections()
     await loadSessionDetail(id)
   }
 
@@ -212,6 +258,8 @@ export default function AgentPage() {
       setMessages([])
       setPendingApproval(null)
       setInput('')
+      setUsage(null)
+      resetSelections()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '新建会话失败')
     }
@@ -235,7 +283,7 @@ export default function AgentPage() {
       setSessions((prev) =>
         prev.map((s) => (s.id === sid ? { ...s, title: text.slice(0, 30) } : s)),
       )
-      const res = await agentChat(sid, text)
+      const res = await agentChat(sid, text, model, reasoningEffort)
       applyResult(res)
       void loadSessions()
     } catch (e) {
@@ -249,7 +297,7 @@ export default function AgentPage() {
     if (!currentId) return
     setApproving(true)
     try {
-      const res = await agentApprove(currentId, approve)
+      const res = await agentApprove(currentId, approve, model, reasoningEffort)
       setPendingApproval(null)
       applyResult(res)
       void loadSessions()
@@ -295,6 +343,14 @@ export default function AgentPage() {
       message.error(e instanceof Error ? e.message : '删除失败')
     }
   }
+
+  const selectedModel = models.find((m) => m.id === model)
+  const contextLength = selectedModel?.context_length || null
+  const lastInput = usage?.last_input_tokens ?? 0
+  const reasoningEffortOptions = [
+    { value: '', label: '默认（不设置）' },
+    ...(selectedModel?.reasoning_efforts ?? []).map((e) => ({ value: e, label: e })),
+  ]
 
   return (
     <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
@@ -388,6 +444,50 @@ export default function AgentPage() {
       </div>
 
       <div style={{ flex: 1, minWidth: 0, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 8 }}>
+        <div
+          style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid #f0f0f0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <Space size={8}>
+            <Typography.Text type="secondary">模型</Typography.Text>
+            <Select
+              size="small"
+              style={{ minWidth: 200 }}
+              value={model}
+              onChange={handleModelChange}
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择模型"
+              options={models.map((m) => ({ value: m.id, label: m.id }))}
+            />
+          </Space>
+          <Space size={8}>
+            <Typography.Text type="secondary">思考强度</Typography.Text>
+            <Select
+              size="small"
+              style={{ minWidth: 130 }}
+              placeholder="默认"
+              value={reasoningEffort ?? ''}
+              onChange={(v) => setReasoningEffort(v || undefined)}
+              options={reasoningEffortOptions}
+            />
+          </Space>
+          {usage && (
+            <Typography.Text type="secondary" style={{ marginLeft: 'auto' }}>
+              {contextLength
+                ? `上下文 ${lastInput.toLocaleString()} / ${contextLength.toLocaleString()} tokens（${Math.round(
+                    (lastInput / contextLength) * 100,
+                  )}%）`
+                : `上下文 ${lastInput.toLocaleString()} tokens`}
+            </Typography.Text>
+          )}
+        </div>
         <div
           style={{
             height: 'calc(100vh - 240px)',

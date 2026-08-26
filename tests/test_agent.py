@@ -76,7 +76,7 @@ async def test_manual_loop_calls_tool_then_finishes(monkeypatch):
         _tool_call("search_papers", {"query": "attention"}, "c1"),
         AIMessage(content="共找到 2 篇相关论文。"),
     ])
-    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda: llm)
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
     result = await agent_module.run_chat(None, "搜索 attention")
 
@@ -102,7 +102,7 @@ async def test_dangerous_tool_pauses_then_approve_executes(monkeypatch):
         _tool_call("run_command", {"server_id": "s1", "command": "ls"}, "c1"),
         AIMessage(content="命令执行完成。"),
     ])
-    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda: llm)
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
     first = await agent_module.run_chat(None, "运行 ls")
     assert first["reply"] is None
@@ -133,7 +133,7 @@ async def test_dangerous_tool_pauses_then_reject_skips(monkeypatch):
         _tool_call("run_command", {"server_id": "s1", "command": "rm -rf /"}, "c1"),
         AIMessage(content="好的，已跳过该操作。"),
     ])
-    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda: llm)
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
     first = await agent_module.run_chat(None, "删库")
     assert first["pending_approval"]["tool"] == "run_command"
@@ -150,7 +150,7 @@ async def test_session_history_preserved_across_turns(monkeypatch):
         AIMessage(content="你好，请问需要我做什么？"),
         AIMessage(content="正在搜索。"),
     ])
-    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda: llm)
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
     first = await agent_module.run_chat(None, "你好")
     session_id = first["session_id"]
@@ -171,7 +171,7 @@ async def test_chat_api_returns_tool_log(client, monkeypatch):
         _tool_call("search_papers", {"query": "attention"}, "c1"),
         AIMessage(content="找到 1 篇论文。"),
     ])
-    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda: llm)
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
     resp = client.post("/api/agent/chat", json={"message": "搜索 attention"})
     assert resp.status_code == 200
@@ -195,7 +195,7 @@ async def test_chat_api_pending_and_approve_endpoint(client, monkeypatch):
         _tool_call("run_command", {"server_id": "s1", "command": "ls"}, "c1"),
         AIMessage(content="执行完成。"),
     ])
-    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda: llm)
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
     resp = client.post("/api/agent/chat", json={"message": "运行 ls"})
     assert resp.status_code == 200
@@ -237,7 +237,7 @@ def test_redact_secrets_noop_without_secrets():
 
 
 async def test_chat_without_api_key_returns_400(client, monkeypatch):
-    def fake_build():
+    def fake_build(model=None, reasoning_effort=None):
         raise agent_module.AgentError("LLM_API_KEY is not configured", 400)
 
     monkeypatch.setattr(agent_module, "_build_bound_llm", fake_build)
@@ -245,3 +245,70 @@ async def test_chat_without_api_key_returns_400(client, monkeypatch):
     resp = client.post("/api/agent/chat", json={"message": "你好"})
     assert resp.status_code == 400
     assert "LLM_API_KEY" in resp.json()["detail"]
+
+
+async def test_run_chat_passes_model_and_reasoning_effort(monkeypatch):
+    captured = {}
+
+    def fake_bound(model=None, reasoning_effort=None):
+        captured["model"] = model
+        captured["reasoning_effort"] = reasoning_effort
+        return FakeLLM([AIMessage(content="ok")])
+
+    monkeypatch.setattr(agent_module, "_build_bound_llm", fake_bound)
+
+    await agent_module.run_chat(None, "hi", model="m1", reasoning_effort="high")
+    assert captured == {"model": "m1", "reasoning_effort": "high"}
+
+
+async def test_approve_reuses_chat_model_and_effort(monkeypatch):
+    executed = []
+
+    async def fake_execute(name, args):
+        executed.append((name, args))
+        return {"output": "ok"}
+
+    monkeypatch.setattr("app.agent.tools.execute_tool", fake_execute)
+
+    llm = FakeLLM([
+        _tool_call("run_command", {"server_id": "s1", "command": "ls"}, "c1"),
+        AIMessage(content="命令执行完成。"),
+    ])
+    captured = []
+
+    def fake_bound(model=None, reasoning_effort=None):
+        captured.append((model, reasoning_effort))
+        return llm
+
+    monkeypatch.setattr(agent_module, "_build_bound_llm", fake_bound)
+
+    first = await agent_module.run_chat(None, "运行 ls", model="m1", reasoning_effort="high")
+    assert first["pending_approval"] is not None
+
+    second = await agent_module.run_approve(first["session_id"], True)
+    assert second["reply"] == "命令执行完成。"
+    assert captured == [("m1", "high"), ("m1", "high")]
+
+
+def test_usage_recorded_from_response_metadata(client, monkeypatch):
+    monkeypatch.setattr(
+        agent_module,
+        "_build_bound_llm",
+        lambda *a, **k: FakeLLM([
+            AIMessage(
+                content="hi",
+                usage_metadata={"input_tokens": 11, "output_tokens": 4, "total_tokens": 15},
+            ),
+        ]),
+    )
+    resp = client.post("/api/agent/chat", json={"message": "hello"})
+    assert resp.status_code == 200
+    session_id = resp.json()["session_id"]
+
+    detail = client.get(f"/api/agent/sessions/{session_id}").json()
+    assert detail["usage"]["input_tokens"] == 11
+    assert detail["usage"]["output_tokens"] == 4
+    assert detail["usage"]["total_tokens"] == 15
+    assert detail["usage"]["message_count"] == 2
+    assert detail["usage"]["last_input_tokens"] == 11
+    assert detail["usage"]["last_output_tokens"] == 4

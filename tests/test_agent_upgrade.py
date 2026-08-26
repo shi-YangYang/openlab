@@ -197,7 +197,7 @@ async def test_status_thinking_executing_cleared(monkeypatch):
         _tool_call("search_papers", {"query": "x"}, "c1"),
         AIMessage(content="完成。"),
     ])
-    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda: llm)
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
     await agent_module.run_chat(None, "搜索")
 

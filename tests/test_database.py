@@ -258,3 +258,43 @@ def test_delete_paper_removes_paper_and_analysis(tmp_path, monkeypatch):
 
     # Deleting a missing paper returns False (idempotent at the caller).
     assert database.delete_paper("1706.03762") is False
+
+
+def test_agent_sessions_token_columns_and_usage(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(config.settings, "data_dir", data_dir)
+    monkeypatch.setattr(config.settings, "papers_dir", data_dir / "papers")
+    monkeypatch.setattr(config.settings, "db_path", data_dir / "openlab.db")
+
+    database.init_db()
+
+    conn = database._connect()
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(agent_sessions)").fetchall()]
+    finally:
+        conn.close()
+    assert "input_tokens" in cols
+    assert "output_tokens" in cols
+    assert "last_input_tokens" in cols
+    assert "last_output_tokens" in cols
+
+    database.create_agent_session("s1", "t")
+    record = database.get_agent_session("s1")
+    assert record["input_tokens"] == 0
+    assert record["output_tokens"] == 0
+    assert record["last_input_tokens"] == 0
+    assert record["last_output_tokens"] == 0
+
+    database.add_agent_session_usage("s1", 12, 34)
+    database.add_agent_session_usage("s1", 5, 6)
+    record = database.get_agent_session("s1")
+    assert record["input_tokens"] == 17
+    assert record["output_tokens"] == 40
+
+    database.set_agent_session_last_usage("s1", 99, 100)
+    record = database.get_agent_session("s1")
+    assert record["last_input_tokens"] == 99
+    assert record["last_output_tokens"] == 100
+    # Accumulated totals are unaffected by the last-usage write.
+    assert record["input_tokens"] == 17
+    assert record["output_tokens"] == 40

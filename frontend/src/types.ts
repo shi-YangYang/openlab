@@ -108,11 +108,25 @@ export interface LlmPreset {
   default_model: string
 }
 
-export interface LlmConfig {
+export interface LlmModelInfo {
+  id: string
+  context_length?: number | null
+  reasoning_efforts?: string[]
+}
+
+export interface LlmGroup {
+  id: string
+  name: string
   base_url: string
   api_key: string
-  model: string
+  models: LlmModelInfo[]
+  default_model: string
   reasoning_effort?: string
+}
+
+export interface LlmGroupsConfig {
+  active_group: string
+  groups: LlmGroup[]
 }
 
 export interface LlmTestResult {
@@ -351,6 +365,16 @@ export interface AgentSessionMessage {
   content: string
 }
 
+export interface AgentSessionUsage {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  message_count: number
+  last_input_tokens?: number
+  last_output_tokens?: number
+}
+
 export interface AgentSessionDetail extends AgentSessionItem {
   messages: AgentSessionMessage[]
+  usage?: AgentSessionUsage
 }

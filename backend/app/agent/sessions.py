@@ -152,6 +152,11 @@ def get_session_detail(session_id: str) -> Optional[Dict[str, Any]]:
     if record is None:
         return None
     messages = _deserialize(record.get("messages"))
+    history = normalize_history(messages)
+    input_tokens = int(record.get("input_tokens") or 0)
+    output_tokens = int(record.get("output_tokens") or 0)
+    last_input_tokens = int(record.get("last_input_tokens") or 0)
+    last_output_tokens = int(record.get("last_output_tokens") or 0)
     return {
         "id": record["id"],
         "title": record["title"] or "",
@@ -159,7 +164,15 @@ def get_session_detail(session_id: str) -> Optional[Dict[str, Any]]:
         "updated_at": record["updated_at"],
         "running": bool(record.get("running")),
         "status": record.get("status") or "",
-        "messages": normalize_history(messages),
+        "messages": history,
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "message_count": len(history),
+            "last_input_tokens": last_input_tokens,
+            "last_output_tokens": last_output_tokens,
+        },
     }
 
 
