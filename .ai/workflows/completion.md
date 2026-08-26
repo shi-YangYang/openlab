@@ -13,6 +13,7 @@
    - 汇总文档是「归档」，不得替代 `spec.md` / `plan.md` / `acceptance.md` 的原始记录。
 
 3. **提交代码**
+   - 仅在用户明确要求提交后执行 commit / push；未获用户明确同意，即使安全核查通过也不得提交。
    - 提交前必须安全核查：
      - `git status` / `git diff` / `git check-ignore` 确认无密钥、`.env`、`data/`、`.venv/`、`node_modules/` 等敏感或生成物入库。
      - 搜索暂存内容确认无硬编码密钥。
@@ -22,5 +23,6 @@
 ## 约束
 
 - 收尾仅在最新独立验收为 PASS 后进行。
+- 未获用户明确要求，不得 commit / push（即使验收已通过）。
 - 提交前未完成安全核查，不得 commit / push。
 - 禁止提交密钥、`.env`、数据库、PDF 等敏感/生成文件。

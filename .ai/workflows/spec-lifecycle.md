@@ -27,7 +27,7 @@
    - Spec 通过最终验收后，协调开发 Agent 执行收尾（见 `completion.md`）：
      - 标记 `spec.md` 状态为 `completed`。
      - 汇总临时/验收 md 文档为一个 `summary.md`。
-     - 安全核查后 commit 并 push。
+     - 安全核查；仅在用户明确要求提交后 commit 并 push。
 
 ## 状态流转
 

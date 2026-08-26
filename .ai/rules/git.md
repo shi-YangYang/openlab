@@ -5,7 +5,7 @@
 ## 提交
 
 - 仅在被明确要求时才提交、推送或创建 PR。
-- 例外：Spec 完成收尾（见 `.ai/workflows/completion.md`）是流程授权的提交场景，该阶段的安全核查通过后即可 commit 并 push。
+- 即使 Spec 完成收尾（见 `.ai/workflows/completion.md`），也必须在用户明确要求提交后，才能 commit 并 push；完成收尾不构成自动提交授权。
 - 提交前检查 `git status`、`git diff`、`git log --oneline -10`。
 - 只暂存预期文件，绝不提交密钥。
 - 提交信息简洁、符合仓库既有风格。

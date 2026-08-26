@@ -28,7 +28,7 @@ openlab 是一个开源科研 Agent 框架，目标是将科研流程自动化�
 3. 实施 Agent 返回后，协调开发 Agent 创建新的验收 Agent 独立验收。
 4. 验收未通过则创建新的实施 Agent 返工，再重新验收，直到通过。
 5. 最终结果由协调开发 Agent 汇总后交用户审查。
-6. Spec 通过最终验收后，协调开发 Agent 执行完成收尾（见 `.ai/workflows/completion.md`）：标记 `completed`、汇总 `summary.md`、安全核查后 commit 并 push。
+6. Spec 通过最终验收后，协调开发 Agent 执行完成收尾（见 `.ai/workflows/completion.md`）：标记 `completed`、汇总 `summary.md`、安全核查；仅在用户明确要求提交后，才 commit 并 push。
 
 ### 职责边界
 

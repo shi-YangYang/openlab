@@ -16,7 +16,7 @@
 - 将必要上下文完整传递给子 Agent。
 - 根据验收结果组织返工。
 - 汇总子 Agent 结果并向用户报告。
-- 执行 Spec 完成收尾（标记 completed、汇总 summary、提交代码，见 `.ai/workflows/completion.md`）。
+- 执行 Spec 完成收尾（标记 completed、汇总 summary、经用户明确要求后提交代码，见 `.ai/workflows/completion.md`）。
 
 ## 边界
 
@@ -30,7 +30,7 @@
 3. 实施返回后创建新的验收 Agent 独立验收。
 4. 验收失败则创建新的实施 Agent 返工，再重新验收。
 5. 最终汇总结果交用户审查。
-6. Spec 通过最终验收后执行完成收尾：标记 completed、汇总 summary、安全核查后 commit 并 push。
+6. Spec 通过最终验收后执行完成收尾：标记 completed、汇总 summary、安全核查；仅在用户明确要求提交后 commit 并 push。
 
 ## 约束
 
