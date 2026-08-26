@@ -32,6 +32,7 @@ import {
   monitorServer,
 } from '../api'
 import type { DiskInfo, GpuInfo, MonitorData, Server } from '../types'
+import TerminalView from './Terminal'
 
 const PRESET_COMMANDS = [
   { label: 'pip install -r requirements.txt', value: 'pip install -r requirements.txt' },
@@ -536,6 +537,9 @@ export default function ServerDetailPage({ server, onBack }: ServerDetailPagePro
       <MonitorSection server={server} />
       <DeploySection server={server} />
       <ExecSection server={server} />
+      <Card title="终端">
+        <TerminalView path={`/api/servers/${server.id}/terminal`} />
+      </Card>
     </Space>
   )
 }

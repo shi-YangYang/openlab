@@ -21,11 +21,12 @@ from fastapi import (
     Query,
     Request,
     UploadFile,
+    WebSocket,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
-from . import analysis, database, downloader, experiment, export, innovation, monitor, pdf, servers, ssh, upload
+from . import analysis, database, downloader, experiment, export, innovation, monitor, pdf, servers, ssh, terminal, upload
 from .agent import (
     AgentError,
     create_session,
@@ -1010,6 +1011,20 @@ async def exec_server(server_id: str, req: ExecRequest) -> dict:
 async def monitor_server(server_id: str) -> dict:
     server = _require_server(server_id)
     return monitor.collect(server)
+
+
+@app.websocket("/api/servers/{server_id}/terminal")
+async def server_terminal_ws(websocket: WebSocket, server_id: str) -> None:
+    await websocket.accept()
+    try:
+        server = _require_server(server_id)
+    except HTTPException as exc:
+        await websocket.send_text(
+            json.dumps({"type": "error", "message": str(exc.detail)})
+        )
+        await websocket.close()
+        return
+    await terminal.ssh_terminal_ws(websocket, server)
 
 
 def _agent_api_key() -> str:

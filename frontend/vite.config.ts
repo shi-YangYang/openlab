@@ -9,6 +9,7 @@ export default defineConfig({
       '/api': {
         target: `http://localhost:${process.env.OPENLAB_PORT || 8001}`,
         changeOrigin: true,
+        ws: true,
       },
     },
   },

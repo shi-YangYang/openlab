@@ -35,6 +35,11 @@ import type {
 
 const BASE = '/api'
 
+export function terminalWsUrl(path: string): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${protocol}://${window.location.host}${path}`
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {

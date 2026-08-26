@@ -71,6 +71,30 @@ def connect(server: Dict[str, Any], timeout: float = 10.0) -> paramiko.SSHClient
     return client
 
 
+def open_shell(
+    server: Dict[str, Any],
+    term: str = "xterm-256color",
+    cols: int = 80,
+    rows: int = 24,
+    timeout: float = 10.0,
+):
+    """Open an interactive shell (PTY) and return ``(client, channel)``.
+
+    The client must stay alive for the channel to keep working; callers are
+    responsible for closing both once the session ends.
+    """
+    client = connect(server, timeout)
+    try:
+        channel = client.invoke_shell(term=term, width=cols, height=rows)
+    except Exception as exc:
+        try:
+            client.close()
+        except Exception:
+            pass
+        raise SSHError(_redact(str(exc), server)) from exc
+    return client, channel
+
+
 def test_connection(server: Dict[str, Any], timeout: float = 10.0) -> Dict[str, Any]:
     start = time.perf_counter()
     try:
