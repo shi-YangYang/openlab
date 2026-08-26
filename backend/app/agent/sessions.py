@@ -147,6 +147,14 @@ def normalize_history(messages: List[BaseMessage]) -> List[Dict[str, str]]:
     return items
 
 
+def get_raw_messages(session_id: str) -> Optional[List[BaseMessage]]:
+    """Return the raw LangChain messages (incl. tool calls) or ``None``."""
+    record = database.get_agent_session(session_id)
+    if record is None:
+        return None
+    return _deserialize(record.get("messages"))
+
+
 def get_session_detail(session_id: str) -> Optional[Dict[str, Any]]:
     record = database.get_agent_session(session_id)
     if record is None:

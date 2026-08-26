@@ -144,6 +144,7 @@ def test_effective_config_uses_active_group(tmp_path, monkeypatch):
         "api_key": "sk-ali",
         "model": "qwen-max",
         "reasoning_effort": "medium",
+        "context_length": None,
     }
 
 
@@ -173,6 +174,7 @@ def test_effective_config_env_fallback_when_group_field_empty(tmp_path, monkeypa
         "api_key": "sk-env",
         "model": "env-model",
         "reasoning_effort": "",
+        "context_length": None,
     }
 
 

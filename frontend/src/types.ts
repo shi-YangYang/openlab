@@ -344,12 +344,23 @@ export interface AgentPendingApproval {
   args: Record<string, unknown>
 }
 
-export interface AgentChatResult {
-  session_id: string
-  reply: string | null
-  tool_calls: AgentToolCall[]
-  pending_approval: AgentPendingApproval | null
+export interface AgentUsageInfo {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  message_count: number
 }
+
+export type AgentWsEvent =
+  | { type: 'session'; session_id: string }
+  | { type: 'status'; text: string }
+  | { type: 'token'; delta: string }
+  | { type: 'tool_call'; entry: AgentToolCall }
+  | { type: 'pending_approval'; tool: string; args: Record<string, unknown> }
+  | { type: 'compacted' }
+  | { type: 'done'; reply: string | null; usage: AgentUsageInfo }
+  | { type: 'stopped' }
+  | { type: 'error'; message: string }
 
 export interface AgentSessionItem {
   id: string

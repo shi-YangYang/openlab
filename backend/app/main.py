@@ -22,34 +22,33 @@ from fastapi import (
     Request,
     UploadFile,
     WebSocket,
+    WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from . import analysis, database, downloader, experiment, export, innovation, monitor, pdf, servers, ssh, terminal, upload
 from .agent import (
-    AgentError,
     create_session,
     delete_session,
+    get_raw_messages,
     get_session_detail,
     list_sessions,
-    run_approve,
-    run_chat,
     update_title,
 )
+from .agent.agent import _redact_secrets
+from .agent.ws import runner as agent_runner
 from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
-from .llm_config import get_effective_config, load_config, save_config
+from .llm_config import load_config, save_config
 from .pdf import PdfExtractionError
 from .presets import LLM_PRESETS
 from .reasoning_efforts import guess_reasoning_efforts
 from .platforms import browser, sessions
 from .search.aggregator import search as aggregate_search
 from .schemas import (
-    AgentApproveRequest,
-    AgentChatRequest,
-    AgentChatResponse,
     AgentSessionCreate,
     AgentSessionDetail,
     AgentSessionItem,
@@ -1131,11 +1130,175 @@ async def server_terminal_ws(websocket: WebSocket, server_id: str) -> None:
     await terminal.ssh_terminal_ws(websocket, server)
 
 
-def _agent_api_key() -> str:
+def _agent_ws_send(websocket: WebSocket, state: dict):
+    """Bounded sender for one connection; failures flip ``state["active"]``."""
+
+    async def send(payload: dict) -> None:
+        if not state.get("active"):
+            raise RuntimeError("connection closed")
+        try:
+            await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+        except Exception:
+            state["active"] = False
+            raise
+
+    return send
+
+
+@app.websocket("/api/agent/ws")
+async def agent_ws(
+    websocket: WebSocket, session_id: Optional[str] = Query(default=None)
+) -> None:
+    await websocket.accept()
+    sid = session_id or None
+    state = {"active": True}
+    send = _agent_ws_send(websocket, state)
+    if sid:
+        # Re-attach a reconnecting client so a running task keeps streaming.
+        agent_runner.attach(sid, send)
+
+    while True:
+        try:
+            text = await websocket.receive_text()
+        except WebSocketDisconnect:
+            break
+        try:
+            message = json.loads(text)
+        except ValueError:
+            continue
+        if not isinstance(message, dict):
+            continue
+
+        msg_type = message.get("type")
+        if msg_type == "chat":
+            text_body = str(message.get("message") or "").strip()
+            if not text_body:
+                await send({"type": "error", "message": "消息不能为空"})
+                continue
+            if sid and get_session_detail(sid) is None:
+                await send({"type": "error", "message": f"会话不存在: {sid}"})
+                continue
+            if not state.get("active"):
+                break
+            if sid is None:
+                created = create_session()
+                sid = created.session_id
+                agent_runner.attach(sid, send)
+                await send({"type": "session", "session_id": sid})
+            agent_runner.start_chat(
+                sid,
+                text_body,
+                model=message.get("model") or None,
+                reasoning_effort=message.get("reasoning_effort") or None,
+            )
+        elif msg_type == "approve":
+            if sid is None:
+                await send({"type": "error", "message": "会话不存在"})
+                continue
+            agent_runner.start_approve(
+                sid,
+                bool(message.get("approve")),
+                model=message.get("model") or None,
+                reasoning_effort=message.get("reasoning_effort") or None,
+            )
+        elif msg_type == "stop":
+            if sid:
+                agent_runner.stop(sid)
+        # Other message types are ignored.
+
+    # Disconnect: the task keeps running in the background so a reconnect can
+    # re-attach; just unbind this socket's sender.
+    state["active"] = False
+    if sid:
+        agent_runner.detach(sid, send)
+
+
+def _tool_result_first_line(messages: List[Any], tool_call_id: Optional[str]) -> tuple:
+    """Return ``(first_line, status)`` of the ToolMessage following a tool call."""
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        if getattr(message, "tool_call_id", None) != tool_call_id:
+            continue
+        content = message.content if isinstance(message.content, str) else str(message.content)
+        first_line = content.strip().splitlines()[0][:200] if content.strip() else ""
+        if content.startswith("执行失败"):
+            return first_line, "error"
+        if "用户拒绝" in content[:20]:
+            return first_line, "rejected"
+        return first_line, "done"
+    return "", "done"
+
+
+def _short_args(args: Any, limit: int = 200) -> str:
     try:
-        return get_effective_config().get("api_key") or ""
-    except Exception:
-        return ""
+        text = json.dumps(args, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(args)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _build_agent_export_markdown(session_id: str) -> Optional[str]:
+    messages = get_raw_messages(session_id)
+    detail = get_session_detail(session_id)
+    if messages is None or detail is None:
+        return None
+
+    lines: List[str] = [
+        f"# {detail['title'] or session_id}",
+        "",
+        f"- 会话 ID：{session_id}",
+        f"- 导出时间：{time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- 消息数：{len(detail['messages'])}",
+        "",
+        "---",
+        "",
+    ]
+    tool_cache = list(messages)
+    for message in messages:
+        if isinstance(message, HumanMessage):
+            lines.extend(["**user**:", "", message.content.strip(), ""])
+        elif isinstance(message, AIMessage):
+            content = (
+                message.content if isinstance(message.content, str) else str(message.content)
+            )
+            if content.strip():
+                lines.extend(["**assistant**:", "", content.strip(), ""])
+            tool_calls = getattr(message, "tool_calls", None) or []
+            if tool_calls:
+                lines.append("<details><summary>工具调用</summary>")
+                lines.append("")
+                for tool_call in tool_calls:
+                    name = tool_call.get("name")
+                    result, status = _tool_result_first_line(
+                        tool_cache, tool_call.get("id")
+                    )
+                    status_label = {"done": "完成", "error": "失败", "rejected": "已拒绝"}.get(
+                        status, status
+                    )
+                    lines.append(f"> - `{name}`（{status_label}）参数：`{_short_args(tool_call.get('args'))}`")
+                    if result:
+                        lines.append(f">   - 结果：{result}")
+                lines.append("")
+                lines.append("</details>")
+                lines.append("")
+
+    markdown = "\n".join(lines).strip() + "\n"
+    return _redact_secrets(markdown)
+
+
+@app.get("/api/agent/sessions/{session_id}/export")
+async def export_agent_session(session_id: str) -> Response:
+    markdown = _build_agent_export_markdown(session_id)
+    if markdown is None:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="agent-{session_id}.md"'
+        },
+    )
 
 
 @app.get("/api/agent/sessions", response_model=List[AgentSessionItem])
@@ -1171,33 +1334,3 @@ async def delete_agent_session(session_id: str) -> dict:
     if not delete_session(session_id):
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
     return {"status": "ok"}
-
-
-@app.post("/api/agent/chat", response_model=AgentChatResponse)
-async def agent_chat(req: AgentChatRequest) -> dict:
-    try:
-        return await run_chat(
-            req.session_id,
-            req.message,
-            model=req.model,
-            reasoning_effort=req.reasoning_effort,
-        )
-    except AgentError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=_redact(str(exc), _agent_api_key()))
-
-
-@app.post("/api/agent/approve", response_model=AgentChatResponse)
-async def agent_approve(req: AgentApproveRequest) -> dict:
-    try:
-        return await run_approve(
-            req.session_id,
-            req.approve,
-            model=req.model,
-            reasoning_effort=req.reasoning_effort,
-        )
-    except AgentError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=_redact(str(exc), _agent_api_key()))

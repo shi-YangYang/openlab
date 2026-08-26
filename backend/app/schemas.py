@@ -415,39 +415,6 @@ class MonitorResponse(BaseModel):
     raw: Dict[str, str] = Field(default_factory=dict)
 
 
-class AgentToolCall(BaseModel):
-    tool: str
-    args: Dict[str, Any] = Field(default_factory=dict)
-    result: Any = None
-    status: str = "done"
-
-
-class AgentPendingApproval(BaseModel):
-    tool: str
-    args: Dict[str, Any] = Field(default_factory=dict)
-
-
-class AgentChatRequest(BaseModel):
-    session_id: Optional[str] = None
-    message: str
-    model: Optional[str] = None
-    reasoning_effort: Optional[str] = None
-
-
-class AgentChatResponse(BaseModel):
-    session_id: str
-    reply: Optional[str] = None
-    tool_calls: List[AgentToolCall] = Field(default_factory=list)
-    pending_approval: Optional[AgentPendingApproval] = None
-
-
-class AgentApproveRequest(BaseModel):
-    session_id: str
-    approve: bool
-    model: Optional[str] = None
-    reasoning_effort: Optional[str] = None
-
-
 class AgentSessionItem(BaseModel):
     id: str
     title: str = ""

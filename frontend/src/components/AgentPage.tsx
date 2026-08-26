@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, isValidElement, type ReactNode } from 'react'
 import {
   Alert,
   App as AntApp,
@@ -12,33 +12,37 @@ import {
   Space,
   Spin,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
 import {
+  CopyOutlined,
   DeleteOutlined,
   EditOutlined,
+  ExportOutlined,
   PlusOutlined,
   RobotOutlined,
   SendOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
-  agentApprove,
-  agentChat,
-  createAgentSession,
   deleteAgentSession,
+  exportAgentSession,
   getAgentSession,
   getLlmConfig,
   listAgentSessions,
   renameAgentSession,
 } from '../api'
+import { useAgentChannel } from '../hooks/useAgentChannel'
 import type {
-  AgentChatResult,
   AgentPendingApproval,
   AgentSessionItem,
   AgentSessionUsage,
   AgentToolCall,
+  AgentUsageInfo,
+  AgentWsEvent,
   LlmModelInfo,
 } from '../types'
 
@@ -53,6 +57,15 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
   error: { color: 'red', label: '失败' },
   rejected: { color: 'orange', label: '已拒绝' },
 }
+
+const COPY_STYLE_TAG = `
+.turn-wrap{position:relative}
+.turn-wrap .turn-copy{opacity:0;transition:opacity .15s}
+.turn-wrap:hover .turn-copy{opacity:1}
+.md-code{position:relative}
+.md-code .code-copy{opacity:0;transition:opacity .15s}
+.md-code:hover .code-copy{opacity:1}
+`
 
 function formatValue(value: unknown): string {
   if (value == null) return ''
@@ -77,6 +90,17 @@ function runningStatusLabel(status?: string): string {
   return 'Agent 正在执行…'
 }
 
+function nodeText(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(nodeText).join('')
+  if (isValidElement(node)) {
+    const props = node.props as { children?: ReactNode }
+    return nodeText(props.children)
+  }
+  return ''
+}
+
 export default function AgentPage() {
   const { message } = AntApp.useApp()
   const [sessions, setSessions] = useState<AgentSessionItem[]>([])
@@ -87,7 +111,6 @@ export default function AgentPage() {
   const [running, setRunning] = useState(false)
   const [statusLabel, setStatusLabel] = useState('')
   const [pendingApproval, setPendingApproval] = useState<AgentPendingApproval | null>(null)
-  const [approving, setApproving] = useState(false)
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -95,13 +118,16 @@ export default function AgentPage() {
   const [model, setModel] = useState<string | undefined>(undefined)
   const [reasoningEffort, setReasoningEffort] = useState<string | undefined>(undefined)
   const [usage, setUsage] = useState<AgentSessionUsage | null>(null)
+  const [compactedVisible, setCompactedVisible] = useState(false)
   const [groupDefaults, setGroupDefaults] = useState<{ model: string }>({
     model: '',
   })
+
+  const currentIdRef = useRef<string | null>(null)
+  const compactTimerRef = useRef<number | null>(null)
+  const wasDisconnectedRef = useRef(false)
   const renamingRef = useRef<string | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
-  const pollTimerRef = useRef<number | null>(null)
-  const currentIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     currentIdRef.current = currentId
@@ -109,7 +135,16 @@ export default function AgentPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  }, [messages, statusLabel, loading, running])
+
+  useEffect(
+    () => () => {
+      if (compactTimerRef.current != null) {
+        window.clearTimeout(compactTimerRef.current)
+      }
+    },
+    [],
+  )
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true)
@@ -122,14 +157,7 @@ export default function AgentPage() {
     }
   }, [message])
 
-  const stopPolling = useCallback(() => {
-    if (pollTimerRef.current != null) {
-      window.clearTimeout(pollTimerRef.current)
-      pollTimerRef.current = null
-    }
-  }, [])
-
-  const loadSessionDetail = useCallback(
+  const refreshDetail = useCallback(
     async (id: string) => {
       try {
         const detail = await getAgentSession(id)
@@ -145,7 +173,6 @@ export default function AgentPage() {
         if (detail.running) {
           setRunning(true)
           setStatusLabel(runningStatusLabel(detail.status))
-          pollTimerRef.current = window.setTimeout(() => void loadSessionDetail(id), 2000)
         } else {
           setRunning(false)
           setStatusLabel('')
@@ -158,7 +185,135 @@ export default function AgentPage() {
     [message],
   )
 
-  useEffect(() => stopPolling, [stopPolling])
+  const clearRunState = useCallback(() => {
+    setRunning(false)
+    setLoading(false)
+    setStatusLabel('')
+  }, [])
+
+  const applyDone = useCallback(
+    (reply: string | null, usageInfo: AgentUsageInfo) => {
+      setMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last && last.role === 'assistant') {
+          next[next.length - 1] = { ...last, text: reply ?? '' }
+        } else {
+          next.push({ role: 'assistant', text: reply ?? '', toolCalls: [] })
+        }
+        return next
+      })
+      setUsage({
+        input_tokens: usageInfo.input_tokens,
+        output_tokens: usageInfo.output_tokens,
+        total_tokens: usageInfo.total_tokens,
+        message_count: usageInfo.message_count,
+        last_input_tokens: usageInfo.input_tokens,
+        last_output_tokens: usageInfo.output_tokens,
+      })
+      const sid = currentIdRef.current
+      if (sid) {
+        void getAgentSession(sid)
+          .then((d) => {
+            if (currentIdRef.current !== sid) return
+            if (d.usage) setUsage(d.usage)
+          })
+          .catch(() => {})
+      }
+      clearRunState()
+      void loadSessions()
+    },
+    [clearRunState, loadSessions],
+  )
+
+  const handleEvent = useCallback(
+    (event: AgentWsEvent) => {
+      switch (event.type) {
+        case 'session':
+          setCurrentId(event.session_id)
+          void loadSessions()
+          break
+        case 'status':
+          setStatusLabel(runningStatusLabel(event.text))
+          setRunning(true)
+          setLoading(false)
+          break
+        case 'token':
+          setMessages((prev) => {
+            const next = [...prev]
+            const last = next[next.length - 1]
+            if (last && last.role === 'assistant') {
+              next[next.length - 1] = { ...last, text: last.text + event.delta }
+            } else {
+              next.push({ role: 'assistant', text: event.delta, toolCalls: [] })
+            }
+            return next
+          })
+          break
+        case 'tool_call':
+          setMessages((prev) => {
+            const next = [...prev]
+            const last = next[next.length - 1]
+            if (last && last.role === 'assistant') {
+              next[next.length - 1] = {
+                ...last,
+                toolCalls: [...last.toolCalls, event.entry],
+              }
+            } else {
+              next.push({ role: 'assistant', text: '', toolCalls: [event.entry] })
+            }
+            return next
+          })
+          break
+        case 'pending_approval':
+          setPendingApproval({ tool: event.tool, args: event.args })
+          clearRunState()
+          break
+        case 'done':
+          applyDone(event.reply, event.usage)
+          break
+        case 'stopped':
+          message.info('本次执行已中断，已保留部分内容')
+          clearRunState()
+          {
+            const sid = currentIdRef.current
+            if (sid) void refreshDetail(sid)
+          }
+          break
+        case 'error':
+          message.error(event.message)
+          clearRunState()
+          break
+        case 'compacted':
+          setCompactedVisible(true)
+          if (compactTimerRef.current != null) {
+            window.clearTimeout(compactTimerRef.current)
+          }
+          compactTimerRef.current = window.setTimeout(() => {
+            setCompactedVisible(false)
+          }, 6000)
+          break
+      }
+    },
+    [applyDone, clearRunState, loadSessions, message, refreshDetail],
+  )
+
+  const channel = useAgentChannel({ sessionId: currentId, onEvent: handleEvent })
+  const { connectionState } = channel
+
+  useEffect(() => {
+    if (connectionState === 'reconnecting' || connectionState === 'closed') {
+      wasDisconnectedRef.current = true
+      return
+    }
+    if (connectionState === 'open' && wasDisconnectedRef.current) {
+      wasDisconnectedRef.current = false
+      const sid = currentIdRef.current
+      if (sid) void refreshDetail(sid)
+    }
+  }, [connectionState, refreshDetail])
+
+  const offline = connectionState !== 'open'
 
   const resetSelections = useCallback(() => {
     setModel(groupDefaults.model)
@@ -201,11 +356,7 @@ export default function AgentPage() {
         setSessions(list)
         if (list.length > 0) {
           setCurrentId(list[0].id)
-          await loadSessionDetail(list[0].id)
-        } else {
-          const created = await createAgentSession()
-          setSessions([created])
-          setCurrentId(created.id)
+          await refreshDetail(list[0].id)
         }
       } catch (e) {
         message.error(e instanceof Error ? e.message : '加载会话失败')
@@ -216,95 +367,83 @@ export default function AgentPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const applyResult = (res: AgentChatResult) => {
-    setCurrentId(res.session_id)
-    if (res.pending_approval) setPendingApproval(res.pending_approval)
-    setMessages((prev) => {
-      const next = [...prev]
-      const last = next[next.length - 1]
-      if (last && last.role === 'assistant' && !last.text) {
-        last.toolCalls = [...last.toolCalls, ...res.tool_calls]
-        if (res.reply) last.text = res.reply
-      } else {
-        next.push({
-          role: 'assistant',
-          text: res.reply ?? '',
-          toolCalls: res.tool_calls,
-        })
-      }
-      return next
-    })
-  }
-
-  const handleSelect = async (id: string) => {
+  const handleSelect = (id: string) => {
     if (id === currentId) return
-    stopPolling()
-    setRunning(false)
-    setStatusLabel('')
-    setCurrentId(id)
+    clearRunState()
     setPendingApproval(null)
-    resetSelections()
-    await loadSessionDetail(id)
+    setMessages([])
+    setUsage(null)
+    setCurrentId(id)
+    void refreshDetail(id)
   }
 
-  const handleNew = async () => {
-    try {
-      stopPolling()
-      setRunning(false)
-      setStatusLabel('')
-      const created = await createAgentSession()
-      setSessions((prev) => [created, ...prev])
-      setCurrentId(created.id)
-      setMessages([])
-      setPendingApproval(null)
-      setInput('')
-      setUsage(null)
-      resetSelections()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '新建会话失败')
-    }
-  }
-
-  const handleSend = async () => {
-    const text = input.trim()
-    if (!text || loading) return
+  const handleNew = () => {
+    clearRunState()
+    setPendingApproval(null)
+    setMessages([])
+    setUsage(null)
     setInput('')
-    setLoading(true)
+    resetSelections()
+    setCurrentId(null)
+  }
+
+  const handleSend = () => {
+    const text = input.trim()
+    if (!text || loading || running || offline) return
+    setInput('')
     setStatusLabel('')
-    try {
-      let sid = currentId
-      if (!sid) {
-        const created = await createAgentSession()
-        setSessions((prev) => [created, ...prev])
-        sid = created.id
-        setCurrentId(sid)
-      }
-      setMessages((prev) => [...prev, { role: 'user', text, toolCalls: [] }])
-      setSessions((prev) =>
-        prev.map((s) => (s.id === sid ? { ...s, title: text.slice(0, 30) } : s)),
-      )
-      const res = await agentChat(sid, text, model, reasoningEffort)
-      applyResult(res)
-      void loadSessions()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '请求失败')
-    } finally {
+    setLoading(true)
+    setMessages((prev) => [...prev, { role: 'user', text, toolCalls: [] }])
+    const ok = channel.sendChat(text, { model, reasoningEffort })
+    if (!ok) {
+      message.error('连接未就绪，请稍后再试')
       setLoading(false)
+      setMessages((prev) => {
+        const next = [...prev]
+        const last = next[next.length - 1]
+        if (last && last.role === 'user' && last.text === text) next.pop()
+        return next
+      })
     }
   }
 
-  const handleApprove = async (approve: boolean) => {
-    if (!currentId) return
-    setApproving(true)
-    try {
-      const res = await agentApprove(currentId, approve, model, reasoningEffort)
+  const handleStop = () => {
+    if (offline) return
+    const ok = channel.sendStop()
+    if (ok) {
+      setStatusLabel('正在停止…')
+    } else {
+      message.error('发送停止指令失败')
+    }
+  }
+
+  const respondApproval = (approve: boolean) => {
+    if (!pendingApproval || offline) return
+    const ok = channel.sendApprove(approve)
+    if (ok) {
       setPendingApproval(null)
-      applyResult(res)
-      void loadSessions()
+      setRunning(true)
+      setStatusLabel(approve ? '正在执行批准的操作…' : '')
+    } else {
+      message.error('发送确认指令失败，请重试')
+    }
+  }
+
+  const handleExport = async (id: string) => {
+    try {
+      await exportAgentSession(id)
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '确认操作失败')
-    } finally {
-      setApproving(false)
+      message.error(e instanceof Error ? e.message : '导出失败')
+    }
+  }
+
+  const copyText = async (text: string) => {
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success('已复制')
+    } catch {
+      message.error('复制失败')
     }
   }
 
@@ -332,11 +471,15 @@ export default function AgentPage() {
   const handleDelete = async (id: string) => {
     try {
       await deleteAgentSession(id)
-      setSessions((prev) => prev.filter((s) => s.id !== id))
+      const remaining = sessions.filter((s) => s.id !== id)
+      setSessions(remaining)
       if (id === currentId) {
-        setCurrentId(null)
-        setMessages([])
+        clearRunState()
         setPendingApproval(null)
+        setMessages([])
+        setUsage(null)
+        setCurrentId(null)
+        if (remaining.length > 0) handleSelect(remaining[0].id)
       }
       message.success('已删除')
     } catch (e) {
@@ -352,8 +495,29 @@ export default function AgentPage() {
     ...(selectedModel?.reasoning_efforts ?? []).map((e) => ({ value: e, label: e })),
   ]
 
+  const markdownComponents: Components = {
+    pre: ({ children }) => {
+      const text = nodeText(children)
+      return (
+        <div className="md-code">
+          <pre>{children}</pre>
+          <Tooltip title="复制代码">
+            <Button
+              className="code-copy"
+              size="small"
+              type="text"
+              icon={<CopyOutlined />}
+              onClick={() => void copyText(text)}
+            />
+          </Tooltip>
+        </div>
+      )
+    },
+  }
+
   return (
     <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <style>{COPY_STYLE_TAG}</style>
       <div
         style={{
           width: 240,
@@ -364,7 +528,7 @@ export default function AgentPage() {
         }}
       >
         <div style={{ padding: 12, borderBottom: '1px solid #f0f0f0' }}>
-          <Button block type="primary" icon={<PlusOutlined />} onClick={() => void handleNew()}>
+          <Button block icon={<PlusOutlined />} onClick={handleNew}>
             新建会话
           </Button>
         </div>
@@ -383,7 +547,7 @@ export default function AgentPage() {
             sessions.map((item) => (
               <div
                 key={item.id}
-                onClick={() => void handleSelect(item.id)}
+                onClick={() => handleSelect(item.id)}
                 style={{
                   padding: '10px 12px',
                   cursor: 'pointer',
@@ -444,6 +608,23 @@ export default function AgentPage() {
       </div>
 
       <div style={{ flex: 1, minWidth: 0, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 8 }}>
+        {(connectionState === 'reconnecting' || connectionState === 'closed') && (
+          <Alert
+            type={connectionState === 'closed' ? 'error' : 'warning'}
+            showIcon
+            style={{ borderRadius: 0 }}
+            message={
+              connectionState === 'closed'
+                ? '连接已断开且自动重连失败'
+                : '连接中断，正在自动重连…'
+            }
+            description={
+              connectionState === 'closed'
+                ? '请检查后端服务是否可用，刷新页面或重新选择会话以重建连接。'
+                : undefined
+            }
+          />
+        )}
         <div
           style={{
             padding: '12px 16px',
@@ -478,15 +659,28 @@ export default function AgentPage() {
               options={reasoningEffortOptions}
             />
           </Space>
-          {usage && (
-            <Typography.Text type="secondary" style={{ marginLeft: 'auto' }}>
-              {contextLength
-                ? `上下文 ${lastInput.toLocaleString()} / ${contextLength.toLocaleString()} tokens（${Math.round(
-                    (lastInput / contextLength) * 100,
-                  )}%）`
-                : `上下文 ${lastInput.toLocaleString()} tokens`}
-            </Typography.Text>
+          {compactedVisible && (
+            <Tag color="geekblue">已压缩早期历史</Tag>
           )}
+          <Space size={8} style={{ marginLeft: 'auto' }}>
+            {usage && (
+              <Typography.Text type="secondary">
+                {contextLength
+                  ? `上下文 ${lastInput.toLocaleString()} / ${contextLength.toLocaleString()} tokens（${Math.round(
+                      (lastInput / contextLength) * 100,
+                    )}%）`
+                  : `上下文 ${lastInput.toLocaleString()} tokens`}
+              </Typography.Text>
+            )}
+            <Button
+              size="small"
+              icon={<ExportOutlined />}
+              disabled={!currentId || offline}
+              onClick={() => currentId && void handleExport(currentId)}
+            >
+              导出 Markdown
+            </Button>
+          </Space>
         </div>
         <div
           style={{
@@ -496,7 +690,7 @@ export default function AgentPage() {
             background: '#fafafa',
           }}
         >
-          {messages.length === 0 && !loading ? (
+          {messages.length === 0 && !loading && !running ? (
             <Empty
               style={{ marginTop: 140 }}
               image={<RobotOutlined style={{ fontSize: 48, color: '#bfbfbf' }} />}
@@ -506,7 +700,17 @@ export default function AgentPage() {
             <Space direction="vertical" size={12} style={{ width: '100%' }}>
               {messages.map((turn, i) =>
                 turn.role === 'user' ? (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <div key={i} className="turn-wrap" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <Tooltip title="复制原文">
+                      <Button
+                        className="turn-copy"
+                        size="small"
+                        type="text"
+                        icon={<CopyOutlined />}
+                        style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)' }}
+                        onClick={() => void copyText(turn.text)}
+                      />
+                    </Tooltip>
                     <div
                       style={{
                         maxWidth: '75%',
@@ -521,7 +725,7 @@ export default function AgentPage() {
                     </div>
                   </div>
                 ) : (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  <div key={i} className="turn-wrap" style={{ display: 'flex', justifyContent: 'flex-start' }}>
                     <div
                       style={{
                         maxWidth: '85%',
@@ -533,7 +737,9 @@ export default function AgentPage() {
                     >
                       {turn.text ? (
                         <div className="markdown">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.text}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                            {turn.text}
+                          </ReactMarkdown>
                         </div>
                       ) : null}
                       {turn.toolCalls.length > 0 && (
@@ -570,6 +776,16 @@ export default function AgentPage() {
                         />
                       )}
                     </div>
+                    <Tooltip title="复制原文">
+                      <Button
+                        className="turn-copy"
+                        size="small"
+                        type="text"
+                        icon={<CopyOutlined />}
+                        style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)' }}
+                        onClick={() => void copyText(turn.text)}
+                      />
+                    </Tooltip>
                   </div>
                 ),
               )}
@@ -604,22 +820,32 @@ export default function AgentPage() {
               onPressEnter={(e) => {
                 if (!e.shiftKey) {
                   e.preventDefault()
-                  void handleSend()
+                  handleSend()
                 }
               }}
-              placeholder="例如：搜索注意力机制相关论文，下载并分析前 2 篇"
+              placeholder={
+                connectionState === 'reconnecting' || connectionState === 'closed'
+                  ? '连接不可用，等待恢复…'
+                  : '例如：搜索注意力机制相关论文，下载并分析前 2 篇'
+              }
               autoSize={{ minRows: 1, maxRows: 4 }}
-              disabled={loading || running || !!pendingApproval}
+              disabled={offline || running || !!pendingApproval}
             />
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={() => void handleSend()}
-              loading={loading}
-              disabled={running || !!pendingApproval}
-            >
-              发送
-            </Button>
+            {running && !offline ? (
+              <Button danger icon={<StopOutlined />} onClick={handleStop}>
+                停止
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={handleSend}
+                loading={loading}
+                disabled={offline || running || !!pendingApproval}
+              >
+                发送
+              </Button>
+            )}
           </Space.Compact>
         </div>
       </div>
@@ -630,10 +856,10 @@ export default function AgentPage() {
         closable={false}
         maskClosable={false}
         footer={[
-          <Button key="reject" danger onClick={() => void handleApprove(false)} loading={approving}>
+          <Button key="reject" danger disabled={offline} onClick={() => respondApproval(false)}>
             拒绝
           </Button>,
-          <Button key="allow" type="primary" onClick={() => void handleApprove(true)} loading={approving}>
+          <Button key="allow" type="primary" disabled={offline} onClick={() => respondApproval(true)}>
             允许执行
           </Button>,
         ]}

@@ -53,33 +53,30 @@ def test_list_orders_by_updated_at_desc(client):
     assert listing[1]["id"] == first["id"]
 
 
-def test_list_excludes_messages(client, monkeypatch):
+async def test_list_excludes_messages(client, monkeypatch):
     monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: FakeLLM([_reply("你好")]))
-    resp = client.post("/api/agent/chat", json={"message": "hello"})
-    assert resp.status_code == 200
+    result = await agent_module.run_chat(None, "hello")
+    assert result["session_id"]
 
     listing = client.get("/api/agent/sessions").json()
     assert listing
     assert all("messages" not in item for item in listing)
 
 
-def test_chat_auto_generates_title(client, monkeypatch):
+async def test_chat_auto_generates_title(client, monkeypatch):
     monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: FakeLLM([_reply("hi")]))
     long_message = "帮我搜索注意力机制相关的论文并下载分析"
-    resp = client.post("/api/agent/chat", json={"message": long_message})
-    assert resp.status_code == 200
-    session_id = resp.json()["session_id"]
+    result = await agent_module.run_chat(None, long_message)
 
-    detail = client.get(f"/api/agent/sessions/{session_id}").json()
+    detail = client.get(f"/api/agent/sessions/{result['session_id']}").json()
     assert detail["title"] == long_message[:30]
 
 
-def test_chat_persists_history(client, monkeypatch):
+async def test_chat_persists_history(client, monkeypatch):
     monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: FakeLLM([_reply("回答内容")]))
-    resp = client.post("/api/agent/chat", json={"message": "一个问题"})
-    session_id = resp.json()["session_id"]
+    result = await agent_module.run_chat(None, "一个问题")
 
-    detail = client.get(f"/api/agent/sessions/{session_id}").json()
+    detail = client.get(f"/api/agent/sessions/{result['session_id']}").json()
     roles = [m["role"] for m in detail["messages"]]
     assert roles == ["user", "assistant"]
     assert detail["messages"][0]["content"] == "一个问题"
@@ -120,14 +117,13 @@ def test_update_missing_session_returns_404(client):
     assert resp.status_code == 404
 
 
-def test_session_detail_includes_usage(client, monkeypatch):
+async def test_session_detail_includes_usage(client, monkeypatch):
     monkeypatch.setattr(
         agent_module, "_build_bound_llm", lambda *a, **k: FakeLLM([_reply("你好")])
     )
-    resp = client.post("/api/agent/chat", json={"message": "hello"})
-    session_id = resp.json()["session_id"]
+    result = await agent_module.run_chat(None, "hello")
 
-    detail = client.get(f"/api/agent/sessions/{session_id}").json()
+    detail = client.get(f"/api/agent/sessions/{result['session_id']}").json()
     assert detail["usage"] == {
         "input_tokens": 0,
         "output_tokens": 0,

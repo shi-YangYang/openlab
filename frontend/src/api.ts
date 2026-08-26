@@ -1,5 +1,4 @@
 import type {
-  AgentChatResult,
   AgentSessionDetail,
   AgentSessionItem,
   AnalysisLanguage,
@@ -381,34 +380,6 @@ export async function execCommand(id: string, command: string): Promise<ExecResu
   return post<ExecResult>(`/servers/${id}/exec`, { command })
 }
 
-export async function agentChat(
-  sessionId: string | null,
-  message: string,
-  model?: string,
-  reasoningEffort?: string,
-): Promise<AgentChatResult> {
-  return post<AgentChatResult>('/agent/chat', {
-    session_id: sessionId,
-    message,
-    model,
-    reasoning_effort: reasoningEffort,
-  })
-}
-
-export async function agentApprove(
-  sessionId: string,
-  approve: boolean,
-  model?: string,
-  reasoningEffort?: string,
-): Promise<AgentChatResult> {
-  return post<AgentChatResult>('/agent/approve', {
-    session_id: sessionId,
-    approve,
-    model,
-    reasoning_effort: reasoningEffort,
-  })
-}
-
 export async function listAgentSessions(): Promise<AgentSessionItem[]> {
   return get<AgentSessionItem[]>('/agent/sessions')
 }
@@ -419,6 +390,22 @@ export async function createAgentSession(): Promise<AgentSessionItem> {
 
 export async function getAgentSession(id: string): Promise<AgentSessionDetail> {
   return get<AgentSessionDetail>(`/agent/sessions/${id}`)
+}
+
+export async function exportAgentSession(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/agent/sessions/${encodeURIComponent(id)}/export`)
+  if (!res.ok) {
+    await throwForStatus(res)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `agent-${id}.md`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 export async function renameAgentSession(id: string, title: string): Promise<AgentSessionItem> {

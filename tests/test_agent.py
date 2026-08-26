@@ -1,5 +1,5 @@
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 from app import config, database
 from app.agent import agent as agent_module
@@ -24,9 +24,30 @@ class FakeLLM:
         self.responses = list(responses)
         self.invocations = []
 
-    async def ainvoke(self, messages):
+    def _take(self, messages):
         self.invocations.append(list(messages))
         return self.responses.pop(0)
+
+    async def ainvoke(self, messages):
+        return self._take(messages)
+
+    async def astream(self, messages):
+        response = self._take(messages)
+        yield AIMessageChunk(
+            content=response.content,
+            tool_calls=list(getattr(response, "tool_calls", []) or []),
+            usage_metadata=getattr(response, "usage_metadata", None),
+        )
+
+
+def _recv_until(ws, event_type, limit=100):
+    events = []
+    for _ in range(limit):
+        event = ws.receive_json()
+        events.append(event)
+        if event.get("type") == event_type:
+            return events
+    raise AssertionError(f"did not receive {event_type}; got {events}")
 
 
 def _tool_call(name, args, call_id):
@@ -162,7 +183,7 @@ async def test_session_history_preserved_across_turns(monkeypatch):
     assert "搜索注意力机制" in human_texts
 
 
-async def test_chat_api_returns_tool_log(client, monkeypatch):
+async def test_ws_chat_returns_tool_log(client, monkeypatch):
     async def fake_execute(name, args):
         return {"count": 1, "papers": []}
 
@@ -173,17 +194,30 @@ async def test_chat_api_returns_tool_log(client, monkeypatch):
     ])
     monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
-    resp = client.post("/api/agent/chat", json={"message": "搜索 attention"})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["session_id"]
-    assert data["reply"] == "找到 1 篇论文。"
-    assert data["tool_calls"][0]["tool"] == "search_papers"
-    assert data["tool_calls"][0]["status"] == "done"
-    assert data["pending_approval"] is None
+    with client.websocket_connect("/api/agent/ws") as ws:
+        ws.send_json({"type": "chat", "message": "搜索 attention"})
+        session_event = ws.receive_json()
+        assert session_event["type"] == "session"
+        assert session_event["session_id"]
+
+        events = _recv_until(ws, "done")
+        assert not any(e["type"] == "error" for e in events)
+        assert any(e["type"] == "status" for e in events)
+        tool_events = [e for e in events if e["type"] == "tool_call"]
+        assert len(tool_events) == 1
+        entry = tool_events[0]["entry"]
+        assert entry["tool"] == "search_papers"
+        assert entry["status"] == "done"
+        assert entry["result"] == {"count": 1, "papers": []}
+
+        token_text = "".join(e["delta"] for e in events if e["type"] == "token")
+        done = events[-1]
+        assert done["reply"] == "找到 1 篇论文。"
+        assert token_text == done["reply"]
+        assert done["usage"]["message_count"] == 2
 
 
-async def test_chat_api_pending_and_approve_endpoint(client, monkeypatch):
+async def test_ws_pending_and_approve_endpoint(client, monkeypatch):
     executed = []
 
     async def fake_execute(name, args):
@@ -197,22 +231,24 @@ async def test_chat_api_pending_and_approve_endpoint(client, monkeypatch):
     ])
     monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
 
-    resp = client.post("/api/agent/chat", json={"message": "运行 ls"})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["pending_approval"] == {
-        "tool": "run_command",
-        "args": {"server_id": "s1", "command": "ls"},
-    }
-    assert executed == []
+    with client.websocket_connect("/api/agent/ws") as ws:
+        ws.send_json({"type": "chat", "message": "运行 ls"})
+        assert ws.receive_json()["type"] == "session"
 
-    approve_resp = client.post(
-        "/api/agent/approve", json={"session_id": data["session_id"], "approve": True}
-    )
-    assert approve_resp.status_code == 200
-    approved = approve_resp.json()
-    assert approved["reply"] == "执行完成。"
-    assert executed == [("run_command", {"server_id": "s1", "command": "ls"})]
+        first_round = _recv_until(ws, "pending_approval")
+        pending = first_round[-1]
+        assert pending["tool"] == "run_command"
+        assert pending["args"] == {"server_id": "s1", "command": "ls"}
+        assert executed == []
+        assert not any(e["type"] == "done" for e in first_round)
+
+        ws.send_json({"type": "approve", "approve": True})
+        second_round = _recv_until(ws, "done")
+        approve_done = second_round[-1]
+        assert approve_done["reply"] == "执行完成。"
+        approve_tools = [e for e in second_round if e["type"] == "tool_call"]
+        assert approve_tools[0]["entry"]["status"] == "done"
+        assert executed == [("run_command", {"server_id": "s1", "command": "ls"})]
 
 
 def test_redact_secrets(monkeypatch):
@@ -236,15 +272,23 @@ def test_redact_secrets_noop_without_secrets():
     assert out == "plain text"
 
 
-async def test_chat_without_api_key_returns_400(client, monkeypatch):
+async def test_ws_chat_without_api_key_emits_error(client, monkeypatch):
     def fake_build(model=None, reasoning_effort=None):
         raise agent_module.AgentError("LLM_API_KEY is not configured", 400)
 
     monkeypatch.setattr(agent_module, "_build_bound_llm", fake_build)
 
-    resp = client.post("/api/agent/chat", json={"message": "你好"})
-    assert resp.status_code == 400
-    assert "LLM_API_KEY" in resp.json()["detail"]
+    with client.websocket_connect("/api/agent/ws") as ws:
+        ws.send_json({"type": "chat", "message": "你好"})
+        session_event = ws.receive_json()
+        assert session_event["type"] == "session"
+        session_id = session_event["session_id"]
+
+        error = _recv_until(ws, "error")[-1]
+        assert "LLM_API_KEY" in error["message"]
+
+    detail = client.get(f"/api/agent/sessions/{session_id}").json()
+    assert detail["running"] is False
 
 
 async def test_run_chat_passes_model_and_reasoning_effort(monkeypatch):
@@ -290,20 +334,33 @@ async def test_approve_reuses_chat_model_and_effort(monkeypatch):
     assert captured == [("m1", "high"), ("m1", "high")]
 
 
+class ShardStreamLLM:
+    """Streams one reply in two text chunks; usage metadata on the last chunk."""
+
+    def __init__(self):
+        self.invocations = []
+
+    async def astream(self, messages):
+        self.invocations.append(list(messages))
+        yield AIMessageChunk(content="找到 ")
+        yield AIMessageChunk(
+            content="1 篇论文。",
+            usage_metadata={"input_tokens": 11, "output_tokens": 4, "total_tokens": 15},
+        )
+
+
 def test_usage_recorded_from_response_metadata(client, monkeypatch):
-    monkeypatch.setattr(
-        agent_module,
-        "_build_bound_llm",
-        lambda *a, **k: FakeLLM([
-            AIMessage(
-                content="hi",
-                usage_metadata={"input_tokens": 11, "output_tokens": 4, "total_tokens": 15},
-            ),
-        ]),
-    )
-    resp = client.post("/api/agent/chat", json={"message": "hello"})
-    assert resp.status_code == 200
-    session_id = resp.json()["session_id"]
+    monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: ShardStreamLLM())
+
+    with client.websocket_connect("/api/agent/ws") as ws:
+        ws.send_json({"type": "chat", "message": "hello"})
+        session_id = ws.receive_json()["session_id"]
+        done = _recv_until(ws, "done")[-1]
+
+    assert done["reply"] == "找到 1 篇论文。"
+    assert done["usage"]["input_tokens"] == 11
+    assert done["usage"]["output_tokens"] == 4
+    assert done["usage"]["total_tokens"] == 15
 
     detail = client.get(f"/api/agent/sessions/{session_id}").json()
     assert detail["usage"]["input_tokens"] == 11

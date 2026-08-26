@@ -7,26 +7,37 @@ and wait for user approval (FR-2/FR-8/FR-9).
 Flow:
 
 1. ``run_chat`` appends the user message, then runs the loop.
-2. Each iteration calls the tool-bound LLM with the full message history.
+2. Each iteration calls the tool-bound LLM with the full message history,
+   streaming text deltas through the optional ``emit(type, payload)`` callback
+   as ``token`` events.
 3. Non-dangerous tool calls are executed immediately and their results are fed
-   back as ``ToolMessage`` entries.
+   back as ``ToolMessage`` entries (surfaced live via ``tool_call`` events).
 4. When a dangerous tool call is reached, the loop stops, stores the pending
-   calls on the session, and returns a ``pending_approval`` payload.
+   calls on the session, and reports a ``pending_approval`` event/payload.
 5. ``run_approve`` executes (or skips) the pending calls and resumes the loop.
+6. Before every LLM call the loop auto-compacts history when the last call's
+   input tokens approach the model's context window (FR-5).
+
+The loop runs inside an ``asyncio.Task`` managed by ``app.agent.ws.AgentRunner``
+in production; cancelling it persists the partial reply and marks the session
+as ``interrupted`` (FR-4).
 """
+import asyncio
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from .. import database
-from ..llm_config import get_effective_config
+from ..llm_config import get_effective_config, get_model_context_length
 from . import tools as agent_tools
+from .compaction import compact_messages, should_compact
 from .sessions import (
     Session,
     get_or_create,
     get_session,
+    normalize_history,
     save_messages,
     set_running,
     set_status,
@@ -36,6 +47,9 @@ from .sessions import (
 MAX_STEPS = 20
 LLM_REQUEST_TIMEOUT_SECONDS = 120.0
 AUTO_TITLE_MAX_LEN = 30
+
+# Optional async callback: emit("token" | "status" | ..., payload_dict)
+EmitFn = Callable[..., Awaitable[None]]
 
 SYSTEM_PROMPT = (
     "你是 openlab 科研 agent，能够调用工具自主完成科研流程，覆盖：文献挖掘（检索/下载）、"
@@ -151,6 +165,89 @@ def _tool_call_to_dict(tool_call: Any) -> Dict[str, Any]:
     }
 
 
+async def _noop_emit(event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    return None
+
+
+def _resolve_emit(emit: Optional[EmitFn]) -> EmitFn:
+    return emit if callable(emit) else _noop_emit
+
+
+async def _safe_emit(
+    emit: EmitFn, event_type: str, payload: Optional[Dict[str, Any]] = None
+) -> None:
+    """Emit an event; transport failures must never break the agent loop."""
+    try:
+        await emit(event_type, payload or {})
+    except Exception:  # noqa: BLE001 - emit is best-effort by design
+        pass
+
+
+def _record_usage(session_id: str, input_tokens: int, output_tokens: int) -> None:
+    if input_tokens or output_tokens:
+        database.add_agent_session_usage(session_id, int(input_tokens), int(output_tokens))
+        database.set_agent_session_last_usage(session_id, int(input_tokens), int(output_tokens))
+
+
+def _last_input_tokens(session_id: str) -> int:
+    try:
+        record = database.get_agent_session(session_id)
+        return int((record or {}).get("last_input_tokens") or 0)
+    except Exception:
+        return 0
+
+
+async def _set_status_emit(
+    session_id: str, text: str, emit: EmitFn
+) -> None:
+    set_status(session_id, text)
+    await _safe_emit(emit, "status", {"text": text})
+
+
+async def _stream_reply(
+    llm: Any, messages: List[Any], emit: EmitFn
+):
+    """Run one LLM call, streaming text deltas via ``token`` events.
+
+    Returns ``(AIMessage, usage_dict)``. Falls back to a single ``ainvoke``
+    when the LLM does not implement streaming (fakes/tests). Streaming chunks
+    may each carry ``usage_metadata``; their values are accumulated per call,
+    defaulting to zeros when the provider omits them.
+    """
+    astream = getattr(llm, "astream", None)
+    if not callable(astream):
+        response: AIMessage = await llm.ainvoke(messages)
+        content = _content_to_str(response.content)
+        if content:
+            await _safe_emit(emit, "token", {"delta": content})
+        return response, dict(getattr(response, "usage_metadata", None) or {})
+
+    agg = None
+    prev_text = ""
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    async for chunk in astream(messages):
+        meta = getattr(chunk, "usage_metadata", None)
+        if meta:
+            usage["input_tokens"] += int(meta.get("input_tokens") or 0)
+            usage["output_tokens"] += int(meta.get("output_tokens") or 0)
+            usage["total_tokens"] += int(meta.get("total_tokens") or 0)
+        agg = chunk if agg is None else agg + chunk
+        text = _content_to_str(getattr(agg, "content", ""))
+        if len(text) > len(prev_text):
+            await _safe_emit(emit, "token", {"delta": text[len(prev_text):]})
+            prev_text = text
+
+    content = _content_to_str(getattr(agg, "content", "")) if agg is not None else ""
+    response = AIMessage(
+        content=content,
+        additional_kwargs=getattr(agg, "additional_kwargs", {}) if agg else {},
+        response_metadata=getattr(agg, "response_metadata", {}) if agg else {},
+        id=getattr(agg, "id", None),
+        tool_calls=list(getattr(agg, "tool_calls", []) or []) if agg else [],
+    )
+    return response, usage
+
+
 async def _execute_feedback(
     session: Session, name: str, args: Dict[str, Any], tool_call_id: str
 ) -> Dict[str, Any]:
@@ -175,23 +272,27 @@ async def _run_loop(
     steps_used: int = 0,
     model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    emit: Optional[EmitFn] = None,
+    context_length: Optional[int] = None,
 ) -> Dict[str, Any]:
+    emit_fn = _resolve_emit(emit)
     steps = steps_used
+    call_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     while steps < max_steps:
-        set_status(session.session_id, "thinking")
-        response: AIMessage = await llm.ainvoke(session.messages)
+        if should_compact(_last_input_tokens(session.session_id), context_length):
+            if await compact_messages(session, llm):
+                await _safe_emit(emit_fn, "compacted")
+
+        await _set_status_emit(session.session_id, "thinking", emit_fn)
+        response, usage = await _stream_reply(llm, session.messages, emit_fn)
         session.messages.append(response)
 
-        usage = getattr(response, "usage_metadata", None) or {}
-        input_tokens = usage.get("input_tokens") or 0
-        output_tokens = usage.get("output_tokens") or 0
-        if input_tokens or output_tokens:
-            database.add_agent_session_usage(
-                session.session_id, int(input_tokens), int(output_tokens)
-            )
-            database.set_agent_session_last_usage(
-                session.session_id, int(input_tokens), int(output_tokens)
-            )
+        input_tokens = int(usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or 0)
+        call_usage["input_tokens"] += input_tokens
+        call_usage["output_tokens"] += output_tokens
+        call_usage["total_tokens"] += input_tokens + output_tokens
+        _record_usage(session.session_id, input_tokens, output_tokens)
 
         tool_calls = response.tool_calls or []
         if not tool_calls:
@@ -199,6 +300,7 @@ async def _run_loop(
                 "reply": _content_to_str(response.content),
                 "tool_calls": log,
                 "pending_approval": None,
+                "usage": dict(call_usage),
             }
 
         steps += 1
@@ -213,21 +315,33 @@ async def _run_loop(
                     "model": model,
                     "reasoning_effort": reasoning_effort,
                 }
+                await _safe_emit(
+                    emit_fn, "pending_approval", {"tool": name, "args": args}
+                )
                 return {
                     "reply": None,
                     "tool_calls": log,
                     "pending_approval": {"tool": name, "args": args},
+                    "usage": dict(call_usage),
                 }
 
-            set_status(session.session_id, f"executing:{name} (第{steps}步)")
+            await _set_status_emit(
+                session.session_id, f"executing:{name} (第{steps}步)", emit_fn
+            )
             entry = await _execute_feedback(session, name, args, tool_call.get("id"))
             log.append(entry)
+            await _safe_emit(emit_fn, "tool_call", {"entry": entry})
 
     return {
         "reply": "已达到最大执行步数，任务可能尚未完成，请继续追问或缩小目标。",
         "tool_calls": log,
         "pending_approval": None,
+        "usage": dict(call_usage),
     }
+
+
+def _conversation_message_count(messages: List[Any]) -> int:
+    return len(normalize_history(messages))
 
 
 async def run_chat(
@@ -236,6 +350,7 @@ async def run_chat(
     max_steps: int = MAX_STEPS,
     model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    emit: Optional[EmitFn] = None,
 ) -> Dict[str, Any]:
     session = get_or_create(session_id)
     if session.pending is not None:
@@ -251,9 +366,13 @@ async def run_chat(
         update_title(session.session_id, session.title)
     save_messages(session)  # persist user message + title before the long loop
 
+    emit_fn = _resolve_emit(emit)
+    context_length = get_model_context_length(model)
+
+    interrupted = False
     set_running(session.session_id, True)
-    llm = _build_bound_llm(model=model, reasoning_effort=reasoning_effort)
     try:
+        llm = _build_bound_llm(model=model, reasoning_effort=reasoning_effort)
         result = await _run_loop(
             session,
             llm,
@@ -261,14 +380,31 @@ async def run_chat(
             max_steps=max_steps,
             model=model,
             reasoning_effort=reasoning_effort,
+            emit=emit_fn,
+            context_length=context_length,
         )
+    except asyncio.CancelledError:
+        interrupted = True
+        raise
     finally:
         set_running(session.session_id, False)
-        set_status(session.session_id, "")
+        if interrupted:
+            # Partial reply / tool records are preserved (FR-4).
+            set_status(session.session_id, "interrupted")
+            save_messages(session)
+        else:
+            set_status(session.session_id, "")
 
-    save_messages(session)  # persist assistant reply + tool results
+    if not interrupted:
+        save_messages(session)  # persist assistant reply + tool results
 
     result["session_id"] = session.session_id
+    if not interrupted and result.get("pending_approval") is None:
+        usage = dict(result.get("usage") or {})
+        usage["message_count"] = _conversation_message_count(session.messages)
+        await _safe_emit(
+            emit_fn, "done", {"reply": result.get("reply") or "", "usage": usage}
+        )
     return result
 
 
@@ -278,6 +414,7 @@ async def run_approve(
     max_steps: int = MAX_STEPS,
     model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    emit: Optional[EmitFn] = None,
 ) -> Dict[str, Any]:
     session = get_session(session_id)
     if session is None:
@@ -291,6 +428,10 @@ async def run_approve(
     reasoning_effort = reasoning_effort or session.pending.get("reasoning_effort")
     session.pending = None
 
+    emit_fn = _resolve_emit(emit)
+    context_length = get_model_context_length(model)
+
+    interrupted = False
     set_running(session_id, True)
     try:
         for tool_call in pending_calls:
@@ -298,6 +439,9 @@ async def run_approve(
             args = tool_call["args"]
             tool_call_id = tool_call["id"]
             if approve:
+                await _set_status_emit(
+                    session_id, f"executing:{name} (第1步)", emit_fn
+                )
                 entry = await _execute_feedback(session, name, args, tool_call_id)
             else:
                 session.messages.append(
@@ -310,6 +454,7 @@ async def run_approve(
                     "status": "rejected",
                 }
             log.append(entry)
+            await _safe_emit(emit_fn, "tool_call", {"entry": entry})
 
         llm = _build_bound_llm(model=model, reasoning_effort=reasoning_effort)
         result = await _run_loop(
@@ -319,10 +464,26 @@ async def run_approve(
             max_steps=max_steps,
             model=model,
             reasoning_effort=reasoning_effort,
+            emit=emit_fn,
+            context_length=context_length,
         )
+    except asyncio.CancelledError:
+        interrupted = True
+        raise
     finally:
         set_running(session_id, False)
-        set_status(session_id, "")
-    save_messages(session)
+        if interrupted:
+            set_status(session_id, "interrupted")
+            save_messages(session)
+        else:
+            set_status(session_id, "")
+    if not interrupted:
+        save_messages(session)
     result["session_id"] = session.session_id
+    if not interrupted and result.get("pending_approval") is None:
+        usage = dict(result.get("usage") or {})
+        usage["message_count"] = _conversation_message_count(session.messages)
+        await _safe_emit(
+            emit_fn, "done", {"reply": result.get("reply") or "", "usage": usage}
+        )
     return result

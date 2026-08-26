@@ -279,8 +279,12 @@ def save_config(data: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def get_effective_config() -> Dict[str, str]:
-    """Resolve the active group into ``{base_url, api_key, model, reasoning_effort}``."""
+def get_effective_config() -> Dict[str, Any]:
+    """Resolve the active group into ``{base_url, api_key, model, reasoning_effort, context_length}``.
+
+    ``context_length`` comes from the default model's metadata and is ``None``
+    when not configured.
+    """
     cfg = load_config()
     groups = cfg.get("groups") or []
     active = cfg.get("active_group") or ""
@@ -309,4 +313,30 @@ def get_effective_config() -> Dict[str, str]:
         ),
         "model": default_model,
         "reasoning_effort": reasoning_effort,
+        "context_length": (default_entry or {}).get("context_length"),
     }
+
+
+def get_model_context_length(model: Optional[str] = None) -> Optional[int]:
+    """Return the configured context window for the given model of the active group.
+
+    Falls back to the group's default model when ``model`` is omitted or
+    unknown; returns ``None`` when unconfigured.
+    """
+    cfg = load_config()
+    groups = cfg.get("groups") or []
+    active = cfg.get("active_group") or ""
+    group = next((g for g in groups if g["id"] == active), None)
+    if group is None:
+        group = groups[0] if groups else None
+    if group is None:
+        return None
+    models = group.get("models") or []
+    target = model or group.get("default_model") or ""
+    entry = next(
+        (m for m in models if isinstance(m, dict) and m.get("id") == target), None
+    )
+    if entry is None:
+        return None
+    value = entry.get("context_length")
+    return int(value) if isinstance(value, int) and value > 0 else None
