@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Divider,
   Form,
   Input,
@@ -113,14 +114,12 @@ function MonitorSection({ server }: { server: Server }) {
       : 0
 
   return (
-    <Card
-      title="监控"
-      extra={
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
         <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void run()}>
           刷新
         </Button>
-      }
-    >
+      </div>
       {loading ? (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
           <Spin tip="执行监控命令中..." />
@@ -312,7 +311,7 @@ function DeploySection({ server }: { server: Server }) {
   const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0)
 
   return (
-    <Card title="部署">
+    <Card>
       <Typography.Title level={5}>git clone</Typography.Title>
       <Form form={cloneForm} layout="vertical" onFinish={handleClone}>
         <Form.Item
@@ -462,7 +461,7 @@ function ExecSection({ server }: { server: Server }) {
   }
 
   return (
-    <Card title="环境配置">
+    <Card>
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <Select
           allowClear
@@ -534,12 +533,19 @@ export default function ServerDetailPage({ server, onBack }: ServerDetailPagePro
       <Typography.Title level={4} style={{ margin: 0 }}>
         {server.name}
       </Typography.Title>
-      <MonitorSection server={server} />
-      <DeploySection server={server} />
-      <ExecSection server={server} />
-      <Card title="终端">
-        <TerminalView path={`/api/servers/${server.id}/terminal`} />
-      </Card>
+      <Collapse
+        defaultActiveKey={[]}
+        items={[
+          { key: 'monitor', label: '监控', children: <MonitorSection server={server} /> },
+          { key: 'deploy', label: '部署', children: <DeploySection server={server} /> },
+          { key: 'exec', label: '环境配置', children: <ExecSection server={server} /> },
+          {
+            key: 'terminal',
+            label: '终端',
+            children: <TerminalView path={`/api/servers/${server.id}/terminal`} />,
+          },
+        ]}
+      />
     </Space>
   )
 }

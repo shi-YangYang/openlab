@@ -20,15 +20,15 @@ import LlmConfigForm from './components/LlmConfigForm'
 import PlatformLogin from './components/PlatformLogin'
 import ServersPage from './components/ServersPage'
 import ServerDetailPage from './components/ServerDetailPage'
-import AnalysisModal from './components/AnalysisModal'
-import ReviewModal from './components/ReviewModal'
-import InnovationModal from './components/InnovationModal'
-import ExperimentModal from './components/ExperimentModal'
+import PaperAnalysisPage from './components/PaperAnalysisPage'
+import ReviewPage from './components/ReviewPage'
+import InnovationPage from './components/InnovationPage'
+import ExperimentPage from './components/ExperimentPage'
 import AgentPage from './components/AgentPage'
 import UploadPdfModal from './components/UploadPdfModal'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
 import { listServers, searchPapers, searchTopic } from './api'
-import type { AnalysisRecord, Paper, SearchFallback, SearchHistoryDetail, Server } from './types'
+import type { Paper, SearchFallback, SearchHistoryDetail, Server } from './types'
 
 const { Header, Content } = Layout
 
@@ -84,36 +84,36 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
   const [llmQuery, setLlmQuery] = useState<string | null>(null)
-  const [analyzeTarget, setAnalyzeTarget] = useState<string | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [reviewIds, setReviewIds] = useState<string[]>([])
-  const [reviewOpen, setReviewOpen] = useState(false)
-  const [innovationIds, setInnovationIds] = useState<string[]>([])
-  const [innovationOpen, setInnovationOpen] = useState(false)
-  const [experimentIds, setExperimentIds] = useState<string[]>([])
-  const [experimentOpen, setExperimentOpen] = useState(false)
   const [fallbacks, setFallbacks] = useState<SearchFallback[]>([])
   const [uploadOpen, setUploadOpen] = useState(false)
 
-  const openAnalyze = useCallback((arxivId: string) => {
-    setAnalyzeTarget(arxivId)
-    setDrawerOpen(true)
-  }, [])
+  const openAnalyze = useCallback(
+    (arxivId: string) => {
+      navigate(`/papers/${arxivId}/analysis`)
+    },
+    [navigate],
+  )
 
-  const openReview = useCallback((ids: string[]) => {
-    setReviewIds(ids)
-    setReviewOpen(true)
-  }, [])
+  const openReview = useCallback(
+    (ids: string[]) => {
+      navigate(`/papers/review?ids=${ids.join(',')}`)
+    },
+    [navigate],
+  )
 
-  const openInnovation = useCallback((ids: string[]) => {
-    setInnovationIds(ids)
-    setInnovationOpen(true)
-  }, [])
+  const openInnovation = useCallback(
+    (ids: string[]) => {
+      navigate(`/papers/innovation?ids=${ids.join(',')}`)
+    },
+    [navigate],
+  )
 
-  const openExperiment = useCallback((ids: string[]) => {
-    setExperimentIds(ids)
-    setExperimentOpen(true)
-  }, [])
+  const openExperiment = useCallback(
+    (ids: string[]) => {
+      navigate(`/papers/experiment?ids=${ids.join(',')}`)
+    },
+    [navigate],
+  )
 
   const searchWorkspace = usePaperWorkspace({
     onAnalyzeOne: openAnalyze,
@@ -129,8 +129,10 @@ export default function App() {
   })
 
   useEffect(() => {
-    void libraryWorkspace.loadLibrary()
-  }, [])
+    if (location.pathname === '/library') {
+      void libraryWorkspace.loadLibrary()
+    }
+  }, [location.pathname, libraryWorkspace.loadLibrary])
 
   const handleSearch = async (values: SearchFormValues) => {
     const params = {
@@ -168,14 +170,6 @@ export default function App() {
     setFallbacks([])
     navigate('/search')
   }
-
-  const handleAnalysisStatus = useCallback(
-    (rec: AnalysisRecord) => {
-      searchWorkspace.handleAnalysisStatus(rec)
-      libraryWorkspace.handleAnalysisStatus(rec)
-    },
-    [searchWorkspace.handleAnalysisStatus, libraryWorkspace.handleAnalysisStatus],
-  )
 
   const rawPath = location.pathname
   const selectedKey = rawPath === '/history'
@@ -274,33 +268,15 @@ export default function App() {
           <Route path="/history/experiment" element={<ExperimentHistoryList />} />
           <Route path="/servers" element={<ServersPage onOpenDetail={(s) => navigate(`/servers/${s.id}`)} />} />
           <Route path="/servers/:serverId" element={<ServerDetailRoute />} />
+          <Route path="/papers/:arxivId/analysis" element={<PaperAnalysisPage />} />
+          <Route path="/papers/review" element={<ReviewPage />} />
+          <Route path="/papers/innovation" element={<InnovationPage />} />
+          <Route path="/papers/experiment" element={<ExperimentPage />} />
           <Route path="/agent" element={<AgentPage />} />
           <Route path="/settings" element={settingsPage} />
           <Route path="*" element={<Navigate to="/search" replace />} />
         </Routes>
 
-        <AnalysisModal
-          arxivId={analyzeTarget}
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          onStatusChange={handleAnalysisStatus}
-        />
-        <ReviewModal
-          arxivIds={reviewIds}
-          open={reviewOpen}
-          onClose={() => setReviewOpen(false)}
-        />
-        <InnovationModal
-          arxivIds={innovationIds}
-          open={innovationOpen}
-          onClose={() => setInnovationOpen(false)}
-        />
-        <ExperimentModal
-          sourceType="papers"
-          arxivIds={experimentIds}
-          open={experimentOpen}
-          onClose={() => setExperimentOpen(false)}
-        />
         <UploadPdfModal
           open={uploadOpen}
           onClose={() => setUploadOpen(false)}

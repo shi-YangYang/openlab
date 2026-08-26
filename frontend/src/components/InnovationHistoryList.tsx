@@ -15,10 +15,10 @@ import {
 } from 'antd'
 import type { TableProps } from 'antd'
 import { ClearOutlined, DeleteOutlined, ExperimentOutlined, EyeOutlined, ReadOutlined, SearchOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { clearInnovations, deleteInnovation, getInnovation, listInnovations, listPapers } from '../api'
 import type { InnovationHistoryItem, InnovationRecord, PaperRecord } from '../types'
 import { basePaperColumns, paperActionColumn } from './PaperTable'
-import ExperimentModal from './ExperimentModal'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
   pending: { color: 'processing', label: '生成中' },
@@ -33,6 +33,7 @@ interface Props {
 
 export default function InnovationHistoryList({ onAnalyze }: Props) {
   const { message } = AntApp.useApp()
+  const navigate = useNavigate()
   const [items, setItems] = useState<InnovationHistoryItem[]>([])
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<InnovationRecord | null>(null)
@@ -41,8 +42,6 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
   const [sourceOpen, setSourceOpen] = useState(false)
   const [sourceLoading, setSourceLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
-  const [experimentInnovationId, setExperimentInnovationId] = useState<number | null>(null)
-  const [experimentOpen, setExperimentOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -99,8 +98,7 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
   }
 
   const handleGenerateExperiment = (item: InnovationHistoryItem) => {
-    setExperimentInnovationId(item.id)
-    setExperimentOpen(true)
+    navigate(`/papers/experiment?innovation_id=${item.id}`)
   }
 
   const handleClear = async () => {
@@ -276,14 +274,6 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
           <Typography.Text type="secondary">暂无来源论文。</Typography.Text>
         )}
       </Modal>
-
-      <ExperimentModal
-        sourceType="innovation"
-        innovationId={experimentInnovationId}
-        arxivIds={[]}
-        open={experimentOpen}
-        onClose={() => setExperimentOpen(false)}
-      />
     </Card>
   )
 }
