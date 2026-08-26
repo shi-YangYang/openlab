@@ -73,6 +73,7 @@ export interface PaperMetadata {
   authors: string[]
   abstract: string
   published: string
+  url?: string
 }
 
 export interface PaperUploadResult {
@@ -111,6 +112,7 @@ export interface LlmConfig {
   base_url: string
   api_key: string
   model: string
+  reasoning_effort?: string
 }
 
 export interface LlmTestResult {
@@ -228,6 +230,20 @@ export interface ExperimentRecord {
   error?: string | null
   progress?: number
   created_at?: string
+}
+
+export interface ExperimentHistoryItem {
+  id: number
+  source_type: string
+  innovation_id?: number | null
+  arxiv_ids: string[]
+  language: string
+  status: string
+  error?: string | null
+  progress?: number
+  created_at?: string
+  source_label: string
+  plan_count: number
 }
 
 export type ServerAuthType = 'password' | 'key'

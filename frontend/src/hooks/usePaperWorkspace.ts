@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { App as AntApp } from 'antd'
-import { analyzeBatch, ApiError, downloadPapers, listAnalyses, listPapers } from '../api'
+import { analyzeBatch, ApiError, deletePaper, downloadPapers, listAnalyses, listPapers } from '../api'
 import type { AnalysisRecord, AnalysisStatusInfo, Paper } from '../types'
 
 interface Options {
@@ -21,6 +21,7 @@ export function usePaperWorkspace(options: Options = {}) {
   const [downloadProgressMap, setDownloadProgressMap] = useState<Record<string, number>>({})
   const [analysisStatusMap, setAnalysisStatusMap] = useState<Record<string, AnalysisStatusInfo>>({})
   const [analyzingBatch, setAnalyzingBatch] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const refreshStatuses = useCallback(async (ids: string[]) => {
     try {
@@ -226,6 +227,41 @@ export function usePaperWorkspace(options: Options = {}) {
     options.onAnalyzeOne?.(arxivId)
   }
 
+  const handleDeleteOne = async (arxivId: string) => {
+    try {
+      await deletePaper(arxivId)
+      message.success('已删除')
+      setPapers((prev) => prev.filter((p) => p.arxiv_id !== arxivId))
+      setSelectedIds((prev) => prev.filter((id) => id !== arxivId))
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '删除失败')
+    }
+  }
+
+  const handleDeleteMany = async (ids: string[]) => {
+    setDeleting(true)
+    let removed = 0
+    try {
+      for (const id of ids) {
+        try {
+          await deletePaper(id)
+          removed += 1
+        } catch {
+          // keep going; report failures below
+        }
+      }
+      setPapers((prev) => prev.filter((p) => !ids.includes(p.arxiv_id)))
+      setSelectedIds((prev) => prev.filter((id) => !ids.includes(id)))
+      if (removed === ids.length) {
+        message.success(`已删除 ${removed} 篇论文`)
+      } else {
+        message.warning(`已删除 ${removed}/${ids.length} 篇论文`)
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const handleAnalysisStatus = useCallback((rec: AnalysisRecord) => {
     setAnalysisStatusMap((prev) => ({
       ...prev,
@@ -246,6 +282,7 @@ export function usePaperWorkspace(options: Options = {}) {
     downloadProgressMap,
     analysisStatusMap,
     analyzingBatch,
+    deleting,
     setResults,
     loadLibrary,
     handleDownload,
@@ -254,6 +291,8 @@ export function usePaperWorkspace(options: Options = {}) {
     handleOpenInnovation,
     handleOpenExperiment,
     handleAnalyzeOne,
+    handleDeleteOne,
+    handleDeleteMany,
     handleAnalysisStatus,
   }
 }

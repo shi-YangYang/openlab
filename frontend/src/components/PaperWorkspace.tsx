@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Button, Card, Input, Space, Tag } from 'antd'
-import { BulbOutlined, DownloadOutlined, ExperimentOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, UploadOutlined } from '@ant-design/icons'
+import { Button, Card, Input, Popconfirm, Space, Tag } from 'antd'
+import { BulbOutlined, DeleteOutlined, DownloadOutlined, ExperimentOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, UploadOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
@@ -8,9 +8,10 @@ interface Props {
   title: string
   workspace: PaperWorkspace
   onUploadPdf?: () => void
+  allowDelete?: boolean
 }
 
-export default function PaperWorkspace({ title, workspace, onUploadPdf }: Props) {
+export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDelete = false }: Props) {
   const {
     papers,
     loading,
@@ -22,12 +23,15 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf }: Props)
     downloadProgressMap,
     analysisStatusMap,
     analyzingBatch,
+    deleting,
     handleDownload,
     handleBatchAnalyze,
     handleOpenReview,
     handleOpenInnovation,
     handleOpenExperiment,
     handleAnalyzeOne,
+    handleDeleteOne,
+    handleDeleteMany,
   } = workspace
 
   const [keyword, setKeyword] = useState('')
@@ -91,6 +95,17 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf }: Props)
               上传 PDF
             </Button>
           )}
+          {allowDelete && (
+            <Popconfirm
+              title={`确定删除选中的 ${selectedIds.length} 篇论文？将同时清理本地 PDF。`}
+              disabled={!selectedIds.length}
+              onConfirm={() => void handleDeleteMany(selectedIds)}
+            >
+              <Button danger icon={<DeleteOutlined />} loading={deleting} disabled={!selectedIds.length}>
+                删除选中
+              </Button>
+            </Popconfirm>
+          )}
         </Space>
       }
     >
@@ -106,6 +121,7 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf }: Props)
         analysisStatusMap={analysisStatusMap}
         showAnalysisStatus={Object.keys(analysisStatusMap).length > 0}
         onAnalyze={handleAnalyzeOne}
+        onDelete={allowDelete ? handleDeleteOne : undefined}
       />
     </Card>
   )

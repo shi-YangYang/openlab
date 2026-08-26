@@ -71,6 +71,7 @@ class PaperMetadata(BaseModel):
     authors: List[str] = Field(default_factory=list)
     abstract: str = ""
     published: str = ""
+    url: str = ""
 
     @field_validator("authors", mode="before")
     @classmethod
@@ -127,12 +128,23 @@ class LLMConfig(BaseModel):
     base_url: str
     api_key: str
     model: str
+    reasoning_effort: Optional[str] = None
 
 
 class LLMConfigUpdate(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+
+
+class LLMModelsRequest(BaseModel):
+    base_url: str
+    api_key: str = ""
+
+
+class LLMModelsResponse(BaseModel):
+    models: List[str] = Field(default_factory=list)
 
 
 class LLMTestRequest(BaseModel):
@@ -278,6 +290,20 @@ class ExperimentRecord(BaseModel):
     error: Optional[str] = None
     progress: Optional[int] = 0
     created_at: Optional[str] = None
+
+
+class ExperimentHistoryItem(BaseModel):
+    id: int
+    source_type: str = "papers"
+    innovation_id: Optional[int] = None
+    arxiv_ids: List[str] = Field(default_factory=list)
+    language: str = "zh"
+    status: str = "pending"
+    error: Optional[str] = None
+    progress: Optional[int] = 0
+    created_at: Optional[str] = None
+    source_label: str = ""
+    plan_count: int = 0
 
 
 class ExperimentRequest(BaseModel):

@@ -42,6 +42,7 @@ def test_effective_config_local_overrides_env(tmp_path, monkeypatch):
         "base_url": "https://env.example.com/v1",
         "api_key": "sk-env",
         "model": "env-model",
+        "reasoning_effort": "",
     }
 
     llm_config.save_config(
@@ -51,7 +52,23 @@ def test_effective_config_local_overrides_env(tmp_path, monkeypatch):
         "base_url": "https://local.example.com/v1",
         "api_key": "sk-local",
         "model": "local-model",
+        "reasoning_effort": "",
     }
+
+
+def test_save_and_load_reasoning_effort(tmp_path, monkeypatch):
+    path = _set_config_path(tmp_path, monkeypatch)
+    saved = llm_config.save_config(
+        base_url="https://example.com/v1", api_key="sk-abc", model="m1",
+        reasoning_effort="high",
+    )
+    assert saved["reasoning_effort"] == "high"
+    assert llm_config.load_config()["reasoning_effort"] == "high"
+
+    # Clearing to empty string removes the setting.
+    llm_config.save_config(reasoning_effort="")
+    assert llm_config.load_config()["reasoning_effort"] == ""
+    assert llm_config.get_effective_config()["reasoning_effort"] == ""
 
 
 def test_effective_config_defaults_when_nothing_set(tmp_path, monkeypatch):

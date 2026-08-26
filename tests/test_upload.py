@@ -52,6 +52,7 @@ async def test_extract_metadata_uses_llm(monkeypatch):
         "authors": ["Alice", "Bob"],
         "abstract": "An abstract",
         "published": "2024-05-01",
+        "url": "",
     }
     assert created["kwargs"]["api_key"] == "sk-test"
 
@@ -64,6 +65,31 @@ async def test_extract_metadata_raises_without_api_key(monkeypatch):
     })
     with pytest.raises(ValueError):
         await upload.extract_metadata("text")
+
+
+async def test_extract_metadata_includes_url(monkeypatch):
+    class FakeMessage:
+        content = (
+            '{"title": "My Paper", "authors": ["Alice"], "abstract": "abs", '
+            '"published": "2024-05-01", "url": "https://arxiv.org/abs/1706.03762"}'
+        )
+
+    class FakeChat:
+        def __init__(self, **kwargs):
+            pass
+
+        async def ainvoke(self, messages):
+            return FakeMessage()
+
+    monkeypatch.setattr(upload, "ChatOpenAI", FakeChat)
+    monkeypatch.setattr(upload, "get_effective_config", lambda: {
+        "base_url": "https://api.example.com/v1",
+        "api_key": "sk-test",
+        "model": "my-model",
+    })
+
+    meta = await upload.extract_metadata("the full paper text")
+    assert meta["url"] == "https://arxiv.org/abs/1706.03762"
 
 
 def test_upload_rejects_non_pdf(client):
@@ -140,6 +166,43 @@ def test_upload_and_confirm_flow(client, monkeypatch):
 
     records = client.get("/api/papers").json()
     assert any(r["arxiv_id"] == rec["arxiv_id"] for r in records)
+
+
+def test_confirm_stores_source_url(client, monkeypatch):
+    async def fake_extract(text):
+        return {
+            "title": "T",
+            "authors": [],
+            "abstract": "",
+            "published": "",
+            "url": "https://arxiv.org/abs/1706.03762",
+        }
+
+    monkeypatch.setattr("app.upload.extract_metadata", fake_extract)
+    pdf_bytes = _make_pdf_bytes("paper text")
+    resp = client.post(
+        "/api/papers/upload",
+        files={"file": ("sample.pdf", pdf_bytes, "application/pdf")},
+    )
+    token = resp.json()["pdf_token"]
+
+    confirm = client.post(
+        "/api/papers/upload/confirm",
+        json={
+            "pdf_token": token,
+            "paper": {
+                "title": "T",
+                "authors": [],
+                "abstract": "",
+                "published": "",
+                "url": "https://arxiv.org/abs/1706.03762",
+            },
+        },
+    )
+    assert confirm.status_code == 200
+    rec = confirm.json()
+    assert rec["source"] == "upload"
+    assert rec["url"] == "https://arxiv.org/abs/1706.03762"
 
 
 def _upload_and_confirm(client, monkeypatch, filename, title="T"):

@@ -7,6 +7,7 @@ import type {
   CloneResult,
   DownloadResult,
   ExecResult,
+  ExperimentHistoryItem,
   ExperimentRecord,
   InnovationHistoryItem,
   InnovationRecord,
@@ -132,6 +133,10 @@ export async function listPapers(arxivIds?: string[]): Promise<PaperRecord[]> {
   return res.json()
 }
 
+export async function deletePaper(arxivId: string): Promise<void> {
+  return del(`/papers/${encodeURIComponent(arxivId)}`)
+}
+
 export async function listSearchHistory(): Promise<SearchHistoryItem[]> {
   return get<SearchHistoryItem[]>('/search/history')
 }
@@ -162,6 +167,11 @@ export async function saveLlmConfig(config: Partial<LlmConfig>): Promise<LlmConf
 
 export async function testLlmConnection(config: Partial<LlmConfig>): Promise<LlmTestResult> {
   return post<LlmTestResult>('/llm/test', config)
+}
+
+export async function getLlmModels(params: { base_url: string; api_key: string }): Promise<string[]> {
+  const res = await post<{ models: string[] }>('/llm/models', params)
+  return res.models
 }
 
 export async function listPlatforms(): Promise<PlatformStatus[]> {
@@ -284,6 +294,18 @@ export async function exportExperimentMarkdown(id: number): Promise<string> {
   const res = await fetch(`${BASE}/experiments/${id}/export`)
   if (!res.ok) throw new Error(await res.text())
   return res.text()
+}
+
+export async function listExperiments(): Promise<ExperimentHistoryItem[]> {
+  return get<ExperimentHistoryItem[]>('/experiments')
+}
+
+export async function deleteExperiment(id: number): Promise<void> {
+  return del(`/experiments/${id}`)
+}
+
+export async function clearExperiments(): Promise<void> {
+  return del('/experiments')
 }
 
 export async function listServers(): Promise<Server[]> {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { App as AntApp, Card, Layout, Menu, Spin, Tabs, Typography } from 'antd'
+import { App as AntApp, Card, Layout, Menu, Spin, Typography } from 'antd'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   BookOutlined,
@@ -15,6 +15,7 @@ import SearchForm, { SearchFormValues } from './components/SearchForm'
 import PaperWorkspace from './components/PaperWorkspace'
 import SearchHistoryList from './components/SearchHistoryList'
 import InnovationHistoryList from './components/InnovationHistoryList'
+import ExperimentHistoryList from './components/ExperimentHistoryList'
 import LlmConfigForm from './components/LlmConfigForm'
 import PlatformLogin from './components/PlatformLogin'
 import ServersPage from './components/ServersPage'
@@ -31,12 +32,19 @@ import type { AnalysisRecord, Paper, SearchFallback, SearchHistoryDetail, Server
 
 const { Header, Content } = Layout
 
-type PageKey = 'search' | 'library' | 'history' | 'servers' | 'agent' | 'settings'
-
 const MENU_ITEMS: MenuProps['items'] = [
   { key: 'search', icon: <SearchOutlined />, label: '搜索' },
   { key: 'library', icon: <BookOutlined />, label: '论文库' },
-  { key: 'history', icon: <HistoryOutlined />, label: '历史' },
+  {
+    key: 'history',
+    icon: <HistoryOutlined />,
+    label: '历史',
+    children: [
+      { key: 'history/search', label: '搜索历史' },
+      { key: 'history/innovation', label: '创新点历史' },
+      { key: 'history/experiment', label: '实验方案' },
+    ],
+  },
   { key: 'servers', icon: <CloudServerOutlined />, label: '服务器' },
   { key: 'agent', icon: <RobotOutlined />, label: 'Agent' },
   { key: 'settings', icon: <SettingOutlined />, label: '设置' },
@@ -169,7 +177,12 @@ export default function App() {
     [searchWorkspace.handleAnalysisStatus, libraryWorkspace.handleAnalysisStatus],
   )
 
-  const selectedKey = (location.pathname.split('/')[1] || 'search') as PageKey
+  const rawPath = location.pathname
+  const selectedKey = rawPath === '/history'
+    ? 'history/search'
+    : rawPath.startsWith('/history/')
+      ? rawPath.slice(1)
+      : rawPath.split('/')[1] || 'search'
 
   const searchPage = (
     <>
@@ -217,24 +230,7 @@ export default function App() {
       title={`论文库（${libraryWorkspace.papers.length}）`}
       workspace={libraryWorkspace}
       onUploadPdf={() => setUploadOpen(true)}
-    />
-  )
-
-  const historyPage = (
-    <Tabs
-      defaultActiveKey="search"
-      items={[
-        {
-          key: 'search',
-          label: '搜索历史',
-          children: <SearchHistoryList onRestore={handleRestore} />,
-        },
-        {
-          key: 'innovation',
-          label: '创新点历史',
-          children: <InnovationHistoryList onAnalyze={openAnalyze} />,
-        },
-      ]}
+      allowDelete
     />
   )
 
@@ -261,15 +257,21 @@ export default function App() {
           selectedKeys={[selectedKey]}
           items={MENU_ITEMS}
           onClick={(e) => navigate(`/${e.key}`)}
+          builtinPlacements={{
+            bottomLeft: { points: ['tc', 'bc'], overflow: { adjustX: 1, adjustY: 1 } },
+          }}
           style={{ flex: 1, minWidth: 0 }}
         />
       </Header>
-      <Content style={{ maxWidth: 1200, width: '100%', margin: '0 auto', padding: 24 }}>
+      <Content style={{ maxWidth: 1600, width: '100%', margin: '0 auto', padding: 24 }}>
         <Routes>
           <Route path="/" element={<Navigate to="/search" replace />} />
           <Route path="/search" element={searchPage} />
           <Route path="/library" element={libraryPage} />
-          <Route path="/history" element={historyPage} />
+          <Route path="/history" element={<Navigate to="/history/search" replace />} />
+          <Route path="/history/search" element={<SearchHistoryList onRestore={handleRestore} />} />
+          <Route path="/history/innovation" element={<InnovationHistoryList onAnalyze={openAnalyze} />} />
+          <Route path="/history/experiment" element={<ExperimentHistoryList />} />
           <Route path="/servers" element={<ServersPage onOpenDetail={(s) => navigate(`/servers/${s.id}`)} />} />
           <Route path="/servers/:serverId" element={<ServerDetailRoute />} />
           <Route path="/agent" element={<AgentPage />} />

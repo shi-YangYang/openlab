@@ -1,6 +1,6 @@
-import { Button, Progress, Space, Table, Tag, Typography } from 'antd'
+import { Button, Popconfirm, Progress, Space, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import { FilePdfOutlined, FileSearchOutlined, LinkOutlined } from '@ant-design/icons'
+import { DeleteOutlined, FilePdfOutlined, FileSearchOutlined, LinkOutlined } from '@ant-design/icons'
 import type { AnalysisStatusInfo, Paper } from '../types'
 
 export const SOURCE_LABELS: Record<string, string> = {
@@ -37,6 +37,7 @@ interface Props {
   analysisStatusMap?: Record<string, AnalysisStatusInfo>
   showAnalysisStatus?: boolean
   onAnalyze?: (arxivId: string) => void
+  onDelete?: (arxivId: string) => void
 }
 
 export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
@@ -84,11 +85,12 @@ export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
 export function paperActionColumn(
   onAnalyze: (arxivId: string) => void,
   statusMap: Record<string, string>,
+  onDelete?: (arxivId: string) => void,
 ): NonNullable<TableProps<Paper>['columns']>[number] {
   return {
     title: '操作',
     key: 'actions',
-    width: 200,
+    width: 280,
     render: (_: unknown, r: Paper) => {
       const downloaded = statusMap[r.arxiv_id] === 'downloaded'
       const isArxiv = !r.source || r.source === 'arxiv'
@@ -128,6 +130,13 @@ export function paperActionColumn(
               查看论文
             </Button>
           )}
+          {onDelete && (
+            <Popconfirm title="确定删除该论文？将同时清理本地 PDF。" onConfirm={() => onDelete(r.arxiv_id)}>
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
         </Space>
       )
     },
@@ -146,6 +155,7 @@ export default function PaperTable({
   analysisStatusMap = {},
   showAnalysisStatus = false,
   onAnalyze,
+  onDelete,
 }: Props) {
   const columns = basePaperColumns()
 
@@ -205,7 +215,7 @@ export default function PaperTable({
   }
 
   if (onAnalyze) {
-    columns.push(paperActionColumn(onAnalyze, statusMap))
+    columns.push(paperActionColumn(onAnalyze, statusMap, onDelete))
   }
 
   return (

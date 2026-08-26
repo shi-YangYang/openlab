@@ -83,12 +83,17 @@ async def _chat(messages: List[tuple], temperature: float = 0.3) -> str:
     if not cfg["api_key"]:
         raise ValueError("LLM_API_KEY is not configured")
 
+    model_kwargs = {}
+    if cfg.get("reasoning_effort"):
+        model_kwargs["reasoning_effort"] = cfg["reasoning_effort"]
+
     llm = ChatOpenAI(
         base_url=cfg["base_url"],
         api_key=cfg["api_key"],
         model=cfg["model"],
         temperature=temperature,
         request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+        model_kwargs=model_kwargs,
     )
     resp = await llm.ainvoke(messages)
     return _content_to_str(resp.content)

@@ -64,9 +64,12 @@ from .schemas import (
     ExecRequest,
     ExecResponse,
     ExperimentRecord,
+    ExperimentHistoryItem,
     ExperimentRequest,
     LLMConfig,
     LLMConfigUpdate,
+    LLMModelsRequest,
+    LLMModelsResponse,
     LLMPreset,
     LLMTestRequest,
     LLMTestResponse,
@@ -305,6 +308,24 @@ async def get_paper_pdf(arxiv_id: str) -> FileResponse:
     return FileResponse(path, media_type="application/pdf")
 
 
+_ARXIV_ID_SAFE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+@app.delete("/api/papers/{arxiv_id:path}")
+async def delete_paper(arxiv_id: str) -> dict:
+    paper = database.get_paper(arxiv_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail=f"Paper not found: {arxiv_id}")
+    if not database.delete_paper(arxiv_id):
+        raise HTTPException(status_code=404, detail=f"Paper not found: {arxiv_id}")
+    local_pdf = paper.get("local_pdf_path")
+    if local_pdf:
+        Path(local_pdf).unlink(missing_ok=True)
+    elif _ARXIV_ID_SAFE_RE.match(arxiv_id):
+        (settings.papers_dir / f"{arxiv_id}.pdf").unlink(missing_ok=True)
+    return {"status": "ok"}
+
+
 _TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
@@ -413,7 +434,7 @@ async def confirm_paper_pdf(req: UploadConfirmRequest) -> dict:
             "categories": [],
             "pdf_url": "",
             "source": "upload",
-            "url": "",
+            "url": req.paper.url or "",
         }
     )
     database.set_status(arxiv_id, "downloaded", str(dest))
@@ -436,6 +457,7 @@ async def update_llm_config(req: LLMConfigUpdate) -> dict:
         base_url=req.base_url,
         api_key=req.api_key,
         model=req.model,
+        reasoning_effort=req.reasoning_effort,
     )
     return get_effective_config()
 
@@ -514,6 +536,50 @@ async def test_llm_connection(req: LLMTestRequest) -> dict:
     except ValueError:
         summary = "连接成功"
     return LLMTestResponse(ok=True, message=summary, latency_ms=latency_ms)
+
+
+@app.post("/api/llm/models", response_model=LLMModelsResponse)
+async def llm_models(req: LLMModelsRequest) -> dict:
+    base_url = (req.base_url or "").strip()
+    api_key = (req.api_key or "").strip()
+
+    if not base_url:
+        raise HTTPException(status_code=400, detail="请先填写 Base URL")
+
+    url = f"{base_url.rstrip('/')}/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=502, detail="获取模型列表超时（15 秒）")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=_redact(str(exc), api_key))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=_redact(str(exc), api_key))
+
+    if resp.status_code >= 400:
+        detail = _redact(_extract_error_body(resp), api_key)
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=detail or f"HTTP {resp.status_code}",
+        )
+
+    try:
+        data = resp.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="返回内容不是有效 JSON")
+
+    items = data.get("data") if isinstance(data, dict) else None
+    models: List[str] = []
+    if isinstance(items, list):
+        for item in items:
+            if isinstance(item, dict) and isinstance(item.get("id"), str):
+                models.append(item["id"])
+            elif isinstance(item, str):
+                models.append(item)
+    return {"models": models}
 
 
 @app.post("/api/analyze/batch", response_model=AnalyzeBatchResponse)
@@ -705,6 +771,20 @@ def _experiment_source_label(record: dict) -> str:
     return "论文: " + (", ".join(arxiv_ids) if arxiv_ids else "-")
 
 
+def _experiment_history_item(record: dict) -> dict:
+    record["source_label"] = (
+        f"创新点 #{record.get('innovation_id')}"
+        if record.get("source_type") == "innovation"
+        else f"论文: {len(record.get('arxiv_ids', []))} 篇"
+    )
+    return record
+
+
+@app.get("/api/experiments", response_model=List[ExperimentHistoryItem])
+async def list_experiments() -> List[dict]:
+    return [_experiment_history_item(r) for r in database.list_experiment_history()]
+
+
 @app.post("/api/experiments", response_model=ExperimentRecord)
 async def create_experiment(
     req: ExperimentRequest, background_tasks: BackgroundTasks
@@ -762,6 +842,19 @@ async def get_experiment(experiment_id: int) -> dict:
     if record is None:
         raise HTTPException(status_code=404, detail=f"No experiment {experiment_id}")
     return record
+
+
+@app.delete("/api/experiments/{experiment_id}")
+async def delete_experiment(experiment_id: int) -> dict:
+    if not database.delete_experiment(experiment_id):
+        raise HTTPException(status_code=404, detail=f"No experiment {experiment_id}")
+    return {"status": "ok"}
+
+
+@app.delete("/api/experiments")
+async def clear_experiments() -> dict:
+    database.clear_experiments()
+    return {"status": "ok"}
 
 
 @app.get("/api/experiments/{experiment_id}/export")

@@ -242,6 +242,18 @@ def set_download_progress(arxiv_id: str, progress: int) -> None:
         conn.close()
 
 
+def delete_paper(arxiv_id: str) -> bool:
+    """Delete a paper and its analyses. Returns True if the paper was removed."""
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM analyses WHERE arxiv_id = ?", (arxiv_id,))
+        cur = conn.execute("DELETE FROM papers WHERE arxiv_id = ?", (arxiv_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def _analysis_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     data = dict(row)
     data["content"] = json.loads(data["content"]) if data.get("content") else None
@@ -630,6 +642,46 @@ def list_experiments() -> List[Dict[str, Any]]:
             data["content"] = json.loads(data["content"]) if data.get("content") else None
             result.append(data)
         return result
+    finally:
+        conn.close()
+
+
+def list_experiment_history() -> List[Dict[str, Any]]:
+    """Return experiment metadata (no full content), newest first."""
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT * FROM experiments ORDER BY id DESC").fetchall()
+        result = []
+        for row in rows:
+            data = dict(row)
+            arxiv_ids = json.loads(data["arxiv_ids"]) if data.get("arxiv_ids") else []
+            content = json.loads(data["content"]) if data.get("content") else None
+            data["arxiv_ids"] = arxiv_ids
+            data["plan_count"] = len(content) if isinstance(content, list) else 0
+            data.pop("content", None)
+            result.append(data)
+        return result
+    finally:
+        conn.close()
+
+
+def delete_experiment(experiment_id: int) -> bool:
+    """Delete an experiment record. Returns True if a row was removed."""
+    conn = _connect()
+    try:
+        cur = conn.execute("DELETE FROM experiments WHERE id = ?", (experiment_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def clear_experiments() -> None:
+    """Delete all experiment records."""
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM experiments")
+        conn.commit()
     finally:
         conn.close()
 

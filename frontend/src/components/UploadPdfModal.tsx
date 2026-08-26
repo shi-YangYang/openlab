@@ -16,6 +16,7 @@ interface MetadataFormValues {
   authors: string[]
   abstract: string
   published: string
+  url: string
 }
 
 export default function UploadPdfModal({ open, onClose, onSaved }: Props) {
@@ -44,6 +45,7 @@ export default function UploadPdfModal({ open, onClose, onSaved }: Props) {
         authors: res.paper.authors,
         abstract: res.paper.abstract,
         published: res.paper.published,
+        url: res.paper.url ?? '',
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : '上传失败')
@@ -120,6 +122,9 @@ export default function UploadPdfModal({ open, onClose, onSaved }: Props) {
           </Form.Item>
           <Form.Item name="published" label="日期">
             <Input placeholder="例如 2024-05-01" />
+          </Form.Item>
+          <Form.Item name="url" label="来源 URL">
+            <Input placeholder="例如 https://arxiv.org/abs/xxxx.xxxxx（可留空）" />
           </Form.Item>
           <Space>
             <Typography.Text type="secondary">确认无误后点击「保存」入库。</Typography.Text>

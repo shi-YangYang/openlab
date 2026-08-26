@@ -291,3 +291,160 @@ async def test_download_pdf_streams_and_reports_progress(monkeypatch, tmp_path):
     assert path.read_bytes() == data
     assert progress[-1] == 100
     assert progress[0] > 0
+
+
+def test_delete_paper_endpoint_cleans_pdf(client):
+    from app import database
+
+    database.upsert_paper(make_paper("1706.03762"))
+    pdf = settings.papers_dir / "1706.03762.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+
+    resp = client.delete("/api/papers/1706.03762")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
+    assert not pdf.exists()
+    records = client.get("/api/papers").json()
+    assert all(r["arxiv_id"] != "1706.03762" for r in records)
+
+
+def test_delete_paper_endpoint_missing_pdf_still_deletes(client):
+    from app import database
+
+    database.upsert_paper(make_paper("1706.03762"))
+
+    resp = client.delete("/api/papers/1706.03762")
+    assert resp.status_code == 200
+    assert database.get_paper("1706.03762") is None
+
+
+def test_delete_paper_endpoint_allows_url_like_id(client):
+    from urllib.parse import quote
+
+    from app import database
+
+    arxiv_id = "https://xueshu.baidu.com/paper/show?paperid=abc&site=xueshu_se"
+    database.upsert_paper(make_paper(arxiv_id))
+
+    resp = client.delete(f"/api/papers/{quote(arxiv_id, safe='')}")
+    assert resp.status_code == 200
+    assert database.get_paper(arxiv_id) is None
+
+
+def test_delete_paper_endpoint_missing_paper_404(client):
+    resp = client.delete("/api/papers/9999.9999")
+    assert resp.status_code == 404
+
+
+def test_experiment_history_and_delete(client):
+    import json
+
+    from app import database
+
+    content = json.dumps([
+        {"hypothesis": "h", "goal": "g", "datasets": ["d"], "baselines": ["b"], "metrics": ["m"]}
+    ])
+    database.insert_experiment("papers", None, ["1706.03762"], content, "zh", status="done")
+    database.insert_experiment("innovation", 7, ["1706.03762"], None, "zh", status="done")
+
+    resp = client.get("/api/experiments")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 2
+    by_id = {item["id"]: item for item in items}
+    for item in items:
+        assert "content" not in item
+
+    papers_item = next(i for i in items if i["source_type"] == "papers")
+    assert papers_item["plan_count"] == 1
+    assert papers_item["source_label"] == "论文: 1 篇"
+
+    innovation_item = next(i for i in items if i["source_type"] == "innovation")
+    assert innovation_item["source_label"] == "创新点 #7"
+
+    eid = papers_item["id"]
+    resp = client.delete(f"/api/experiments/{eid}")
+    assert resp.status_code == 200
+    assert len(client.get("/api/experiments").json()) == 1
+
+    resp = client.delete(f"/api/experiments/{eid}")
+    assert resp.status_code == 404
+
+
+def test_clear_experiments(client):
+    from app import database
+
+    database.insert_experiment("papers", None, ["1"], None, "zh", status="pending")
+    database.insert_experiment("innovation", 5, ["1"], None, "zh", status="pending")
+
+    resp = client.delete("/api/experiments")
+    assert resp.status_code == 200
+    assert client.get("/api/experiments").json() == []
+
+
+def test_llm_models_requires_base_url(client):
+    resp = client.post("/api/llm/models", json={"base_url": "", "api_key": ""})
+    assert resp.status_code == 400
+
+
+def test_llm_models_endpoint(client, monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            self.url = None
+            self.headers = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, headers=None):
+            self.url = url
+            self.headers = headers
+            return FakeResp()
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+
+    resp = client.post(
+        "/api/llm/models",
+        json={"base_url": "https://api.openai.com/v1", "api_key": "sk-test"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["models"] == ["gpt-4o", "gpt-4o-mini"]
+
+
+def test_llm_models_endpoint_error_status(client, monkeypatch):
+    class FakeResp:
+        status_code = 401
+
+        def json(self):
+            return {"error": {"message": "invalid api key"}}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, headers=None):
+            return FakeResp()
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+
+    resp = client.post(
+        "/api/llm/models",
+        json={"base_url": "https://api.openai.com/v1", "api_key": "sk-test"},
+    )
+    assert resp.status_code == 401
+    assert "invalid api key" in resp.json()["detail"]

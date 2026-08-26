@@ -236,3 +236,25 @@ def test_source_column_default_and_upsert(tmp_path, monkeypatch):
     record = database.get_paper("upload-token")
     assert record["source"] == "upload"
     assert record["url"] == "https://example.com/x"
+
+
+def test_delete_paper_removes_paper_and_analysis(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(config.settings, "data_dir", data_dir)
+    monkeypatch.setattr(config.settings, "papers_dir", data_dir / "papers")
+    monkeypatch.setattr(config.settings, "db_path", data_dir / "openlab.db")
+
+    database.init_db()
+    database.upsert_paper(make_paper("1706.03762"))
+    database.set_analysis_status("1706.03762", "done", "zh")
+    database.upsert_analysis("1706.03762", "{}", "zh", status="done")
+
+    assert database.get_paper("1706.03762") is not None
+    assert database.get_analysis("1706.03762") is not None
+
+    assert database.delete_paper("1706.03762") is True
+    assert database.get_paper("1706.03762") is None
+    assert database.get_analysis("1706.03762") is None
+
+    # Deleting a missing paper returns False (idempotent at the caller).
+    assert database.delete_paper("1706.03762") is False

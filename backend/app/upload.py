@@ -17,9 +17,11 @@ _SYSTEM_PROMPT = (
     "You are a research paper metadata extraction assistant. "
     "Given the text extracted from a research paper PDF, extract the paper's "
     "bibliographic metadata. Respond with ONLY a JSON object containing the "
-    'keys "title" (string), "authors" (array of strings), "abstract" (string) '
-    'and "published" (string, publication date in YYYY-MM-DD or YYYY format, '
-    "empty string if unknown). Do not include any other text."
+    'keys "title" (string), "authors" (array of strings), "abstract" (string), '
+    '"published" (string, publication date in YYYY-MM-DD or YYYY format, '
+    'empty string if unknown) and "url" (string, the paper\'s source URL such '
+    "as an arxiv.org/abs/xxx link, empty string if unknown). "
+    "Do not include any other text."
 )
 
 
@@ -72,11 +74,15 @@ async def extract_metadata(text: str) -> dict:
         raise ValueError("LLM_API_KEY is not configured")
 
     excerpt = text[:12000]
+    model_kwargs = {}
+    if cfg.get("reasoning_effort"):
+        model_kwargs["reasoning_effort"] = cfg["reasoning_effort"]
     llm = ChatOpenAI(
         base_url=cfg["base_url"],
         api_key=cfg["api_key"],
         model=cfg["model"],
         temperature=0.0,
+        model_kwargs=model_kwargs,
     )
     resp = await llm.ainvoke([("system", _SYSTEM_PROMPT), ("human", excerpt)])
     raw = _content_to_str(resp.content)

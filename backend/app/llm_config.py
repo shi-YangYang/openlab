@@ -20,12 +20,13 @@ from .config import settings
 
 CONFIG_FILENAME = "llm_config.json"
 
-_VALID_KEYS = ("base_url", "api_key", "model")
+_VALID_KEYS = ("base_url", "api_key", "model", "reasoning_effort")
 
 _DEFAULTS = {
     "base_url": "https://api.openai.com/v1",
     "api_key": "",
     "model": "gpt-4o-mini",
+    "reasoning_effort": "",
 }
 
 
@@ -61,6 +62,7 @@ def save_config(
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Dict[str, str]:
     """Persist the provided fields, preserving any unspecified ones."""
     current = load_config()
@@ -70,6 +72,8 @@ def save_config(
         current["api_key"] = api_key
     if model is not None:
         current["model"] = model
+    if reasoning_effort is not None:
+        current["reasoning_effort"] = reasoning_effort
 
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,4 +94,9 @@ def get_effective_config() -> Dict[str, str]:
         ).rstrip("/"),
         "api_key": local.get("api_key") or os.getenv("LLM_API_KEY") or _DEFAULTS["api_key"],
         "model": local.get("model") or os.getenv("LLM_MODEL") or _DEFAULTS["model"],
+        "reasoning_effort": (
+            local.get("reasoning_effort")
+            or os.getenv("LLM_REASONING_EFFORT")
+            or _DEFAULTS["reasoning_effort"]
+        ),
     }
