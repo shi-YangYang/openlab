@@ -156,11 +156,11 @@ export default function TerminalView({ path }: TerminalViewProps) {
       )}
       <div
         ref={containerRef}
+        className="terminal-container"
         style={{
           background: '#1e1e1e',
-          padding: 8,
           borderRadius: 4,
-          height: 320,
+          height: 400,
           overflow: 'hidden',
         }}
       />

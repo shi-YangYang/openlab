@@ -14,6 +14,14 @@
   padding-top: 0 !important;
 }
 
+.terminal-container .xterm {
+  padding: 8px;
+}
+
+.terminal-container .xterm .xterm-viewport {
+  overflow: hidden;
+}
+
 .markdown {
   font-size: 14px;
   line-height: 1.6;
