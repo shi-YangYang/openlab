@@ -1,5 +1,3 @@
-import pytest
-
 from app import config, database
 from app.main import get_arxiv_client
 from tests.conftest import make_paper
@@ -7,7 +5,7 @@ from tests.conftest import make_paper
 
 def test_search_saves_keyword_history(client, fake_arxiv):
     fake_arxiv([make_paper("1"), make_paper("2")])
-    resp = client.post("/api/search", json={"query": "attention", "max_results": 10})
+    resp = client.post("/api/search", json={"query": "attention", "max_results": 10, "platforms": ["arxiv"]})
     assert resp.status_code == 200
 
     history = client.get("/api/search/history").json()
@@ -25,7 +23,7 @@ def test_topic_search_saves_history(client, fake_arxiv, monkeypatch):
     monkeypatch.setattr("app.main.decompose_topic", fake_decompose)
     fake_arxiv([make_paper("1")])
 
-    resp = client.post("/api/search/topic", json={"topic": "transformers", "max_results": 10})
+    resp = client.post("/api/search/topic", json={"topic": "transformers", "max_results": 10, "platforms": ["arxiv"]})
     assert resp.status_code == 200
 
     history = client.get("/api/search/history").json()
@@ -37,7 +35,7 @@ def test_topic_search_saves_history(client, fake_arxiv, monkeypatch):
 
 def test_history_detail_and_delete(client, fake_arxiv):
     fake_arxiv([make_paper("1"), make_paper("2")])
-    client.post("/api/search", json={"query": "q", "max_results": 10})
+    client.post("/api/search", json={"query": "q", "max_results": 10, "platforms": ["arxiv"]})
 
     history = client.get("/api/search/history").json()
     hid = history[0]["id"]
@@ -58,8 +56,8 @@ def test_history_not_found(client):
 
 def test_history_clear(client, fake_arxiv):
     fake_arxiv([make_paper("1")])
-    client.post("/api/search", json={"query": "a", "max_results": 10})
-    client.post("/api/search", json={"query": "b", "max_results": 10})
+    client.post("/api/search", json={"query": "a", "max_results": 10, "platforms": ["arxiv"]})
+    client.post("/api/search", json={"query": "b", "max_results": 10, "platforms": ["arxiv"]})
     assert len(client.get("/api/search/history").json()) == 2
 
     assert client.delete("/api/search/history").status_code == 200
@@ -69,7 +67,7 @@ def test_history_clear(client, fake_arxiv):
 def test_history_snapshot_limit(client, fake_arxiv, monkeypatch):
     monkeypatch.setattr(config.settings, "search_history_snapshot_limit", 2)
     fake_arxiv([make_paper(str(i)) for i in range(5)])
-    client.post("/api/search", json={"query": "q", "max_results": 10})
+    client.post("/api/search", json={"query": "q", "max_results": 10, "platforms": ["arxiv"]})
 
     history = client.get("/api/search/history").json()
     assert history[0]["paper_count"] == 2
@@ -78,16 +76,17 @@ def test_history_snapshot_limit(client, fake_arxiv, monkeypatch):
     assert len(detail["papers"]) == 2
 
 
-def test_failed_search_not_recorded(client, fake_arxiv):
+def test_search_provider_failure_degrades_to_fallback(client):
     class RaisingClient:
         async def search(self, query, max_results=10, category=None):
             raise RuntimeError("boom")
 
     client.app.dependency_overrides[get_arxiv_client] = lambda: RaisingClient()
-    with pytest.raises(RuntimeError):
-        client.post("/api/search", json={"query": "x", "max_results": 10})
-
-    assert client.get("/api/search/history").json() == []
+    resp = client.post("/api/search", json={"query": "x", "max_results": 10, "platforms": ["arxiv"]})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["papers"] == []
+    assert any(f["platform"] == "arxiv" for f in data["fallbacks"])
 
 
 def test_history_migration_idempotent(tmp_path, monkeypatch):

@@ -44,6 +44,7 @@ class Settings:
         # Storage: SQLite database + local PDF directory.
         self.data_dir: Path = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
         self.papers_dir: Path = Path(os.getenv("PAPERS_DIR", str(self.data_dir / "papers")))
+        self.uploads_dir: Path = Path(os.getenv("UPLOADS_DIR", str(self.data_dir / "uploads")))
         self.db_path: Path = Path(os.getenv("DB_PATH", str(self.data_dir / "openlab.db")))
 
         # arXiv API rate limiting / retry.
@@ -62,6 +63,7 @@ class Settings:
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.papers_dir.mkdir(parents=True, exist_ok=True)
+        self.uploads_dir.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

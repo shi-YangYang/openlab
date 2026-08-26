@@ -15,9 +15,12 @@ CREATE TABLE IF NOT EXISTS papers (
     categories TEXT,
     published TEXT,
     pdf_url TEXT,
+    source TEXT DEFAULT 'arxiv',
+    url TEXT,
     local_pdf_path TEXT,
     status TEXT DEFAULT 'pending',
     progress INTEGER DEFAULT 0,
+    error TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -117,6 +120,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("analyses", "message", "TEXT"),
         ("agent_sessions", "running", "INTEGER DEFAULT 0"),
         ("agent_sessions", "status", "TEXT"),
+        ("papers", "source", "TEXT DEFAULT 'arxiv'"),
+        ("papers", "url", "TEXT"),
+        ("papers", "error", "TEXT"),
     ):
         names = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in names:
@@ -127,6 +133,9 @@ def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     data = dict(row)
     data["authors"] = json.loads(data["authors"]) if data.get("authors") else []
     data["categories"] = json.loads(data["categories"]) if data.get("categories") else []
+    data["source"] = data.get("source") or "arxiv"
+    data["url"] = data.get("url") or ""
+    data["error"] = data.get("error") or ""
     return data
 
 
@@ -141,15 +150,17 @@ def upsert_paper(paper: Dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT INTO papers
-                (arxiv_id, title, authors, abstract, categories, published, pdf_url, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                (arxiv_id, title, authors, abstract, categories, published, pdf_url, source, url, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
             ON CONFLICT(arxiv_id) DO UPDATE SET
                 title = excluded.title,
                 authors = excluded.authors,
                 abstract = excluded.abstract,
                 categories = excluded.categories,
                 published = excluded.published,
-                pdf_url = excluded.pdf_url
+                pdf_url = excluded.pdf_url,
+                source = excluded.source,
+                url = excluded.url
             """,
             (
                 paper["arxiv_id"],
@@ -159,6 +170,8 @@ def upsert_paper(paper: Dict[str, Any]) -> None:
                 json.dumps(paper.get("categories", [])),
                 paper.get("published", ""),
                 paper.get("pdf_url", ""),
+                paper.get("source", "arxiv"),
+                paper.get("url", ""),
             ),
         )
         conn.commit()
@@ -193,18 +206,23 @@ def list_papers(arxiv_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         conn.close()
 
 
-def set_status(arxiv_id: str, status: str, local_pdf_path: Optional[str] = None) -> None:
+def set_status(
+    arxiv_id: str,
+    status: str,
+    local_pdf_path: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
     conn = _connect()
     try:
         if local_pdf_path is not None:
             conn.execute(
-                "UPDATE papers SET status = ?, local_pdf_path = ? WHERE arxiv_id = ?",
-                (status, local_pdf_path, arxiv_id),
+                "UPDATE papers SET status = ?, local_pdf_path = ?, error = ? WHERE arxiv_id = ?",
+                (status, local_pdf_path, error, arxiv_id),
             )
         else:
             conn.execute(
-                "UPDATE papers SET status = ? WHERE arxiv_id = ?",
-                (status, arxiv_id),
+                "UPDATE papers SET status = ?, error = ? WHERE arxiv_id = ?",
+                (status, error, arxiv_id),
             )
         conn.commit()
     finally:

@@ -1,13 +1,20 @@
 import { Button, Progress, Space, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import { FilePdfOutlined, FileSearchOutlined } from '@ant-design/icons'
+import { FilePdfOutlined, FileSearchOutlined, LinkOutlined } from '@ant-design/icons'
 import type { AnalysisStatusInfo, Paper } from '../types'
+
+export const SOURCE_LABELS: Record<string, string> = {
+  arxiv: 'arXiv',
+  semantic_scholar: 'Semantic Scholar',
+  baidu_xueshu: '百度学术',
+  cnki: '知网 CNKI',
+  upload: '个人上传',
+}
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
   pending: { color: 'gold', label: '待下载' },
   downloading: { color: 'processing', label: '下载中' },
   downloaded: { color: 'success', label: '已下载' },
-  failed: { color: 'error', label: '失败' },
   skipped: { color: 'default', label: '已存在' },
 }
 
@@ -24,6 +31,7 @@ interface Props {
   selectedIds: string[]
   onSelect: (ids: string[]) => void
   statusMap: Record<string, string>
+  errorMap?: Record<string, string>
   downloadProgressMap?: Record<string, number>
   showStatus: boolean
   analysisStatusMap?: Record<string, AnalysisStatusInfo>
@@ -38,11 +46,16 @@ export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
       dataIndex: 'title',
       key: 'title',
       ellipsis: true,
-      render: (t: string, r: Paper) => (
-        <Typography.Link href={`https://arxiv.org/abs/${r.arxiv_id}`} target="_blank" rel="noreferrer">
-          {t}
-        </Typography.Link>
-      ),
+      render: (t: string, r: Paper) => {
+        const isArxiv = !r.source || r.source === 'arxiv'
+        const href = isArxiv ? `https://arxiv.org/abs/${r.arxiv_id}` : (r.url || '')
+        if (!href) return <Typography.Text>{t}</Typography.Text>
+        return (
+          <Typography.Link href={href} target="_blank" rel="noreferrer">
+            {t}
+          </Typography.Link>
+        )
+      },
     },
     {
       title: '作者',
@@ -52,11 +65,11 @@ export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
       render: (a: string[]) => a?.join(', '),
     },
     {
-      title: '分类',
-      dataIndex: 'categories',
-      key: 'categories',
-      width: 170,
-      render: (c: string[]) => c?.map((x) => <Tag key={x}>{x}</Tag>),
+      title: '来源',
+      dataIndex: 'source',
+      key: 'source',
+      width: 130,
+      render: (s: string) => <Tag>{SOURCE_LABELS[s] ?? s ?? '-'}</Tag>,
     },
     {
       title: '日期',
@@ -64,13 +77,6 @@ export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
       key: 'published',
       width: 110,
       render: (d: string) => (d || '').slice(0, 10),
-    },
-    {
-      title: 'arXiv ID',
-      dataIndex: 'arxiv_id',
-      key: 'arxiv_id',
-      width: 120,
-      render: (id: string) => <Typography.Text code>{id}</Typography.Text>,
     },
   ]
 }
@@ -85,15 +91,31 @@ export function paperActionColumn(
     width: 200,
     render: (_: unknown, r: Paper) => {
       const downloaded = statusMap[r.arxiv_id] === 'downloaded'
+      const isArxiv = !r.source || r.source === 'arxiv'
+      const isBaidu = r.source === 'baidu_xueshu'
       return (
         <Space size={4}>
-          <Button
-            size="small"
-            icon={<FileSearchOutlined />}
-            onClick={() => onAnalyze(r.arxiv_id)}
-          >
-            分析
-          </Button>
+          {!isBaidu && (
+            <Button
+              size="small"
+              icon={<FileSearchOutlined />}
+              onClick={() => onAnalyze(r.arxiv_id)}
+            >
+              分析
+            </Button>
+          )}
+          {!isArxiv && r.url && (
+            <Button
+              size="small"
+              type="link"
+              icon={<LinkOutlined />}
+              href={r.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              查看原文
+            </Button>
+          )}
           {downloaded && (
             <Button
               size="small"
@@ -118,6 +140,7 @@ export default function PaperTable({
   selectedIds,
   onSelect,
   statusMap,
+  errorMap = {},
   downloadProgressMap = {},
   showStatus,
   analysisStatusMap = {},
@@ -130,7 +153,7 @@ export default function PaperTable({
     columns.push({
       title: '状态',
       key: 'status',
-      width: 140,
+      width: 150,
       render: (_: unknown, r: Paper) => {
         const s = statusMap[r.arxiv_id]
         if (!s) return '-'
@@ -143,6 +166,10 @@ export default function PaperTable({
             />
           )
         }
+        if (s === 'failed') {
+          const reason = errorMap[r.arxiv_id] || '失败'
+          return <Tag color="error">{reason}</Tag>
+        }
         const meta = STATUS_META[s] ?? { color: 'default', label: s }
         return <Tag color={meta.color}>{meta.label}</Tag>
       },
@@ -153,23 +180,21 @@ export default function PaperTable({
     columns.push({
       title: '分析',
       key: 'analysis_status',
-      width: 180,
+      width: 220,
       render: (_: unknown, r: Paper) => {
         const info = analysisStatusMap[r.arxiv_id]
         if (!info) return '-'
         if (info.status === 'running') {
           return (
-            <div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <Progress
                 percent={info.progress ?? 0}
                 size="small"
-                style={{ width: 120 }}
+                showInfo={false}
               />
-              {info.message && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {info.message}
-                </Typography.Text>
-              )}
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {`${info.progress ?? 0}%${info.message ? ` ${info.message}` : ''}`}
+              </Typography.Text>
             </div>
           )
         }

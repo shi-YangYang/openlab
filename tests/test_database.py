@@ -203,3 +203,36 @@ def test_migration_adds_progress_message_columns_without_data_loss(tmp_path, mon
         assert review["progress"] == 0
     finally:
         conn.close()
+
+
+def test_source_column_default_and_upsert(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    monkeypatch.setattr(config.settings, "data_dir", data_dir)
+    monkeypatch.setattr(config.settings, "papers_dir", data_dir / "papers")
+    monkeypatch.setattr(config.settings, "db_path", data_dir / "openlab.db")
+
+    database.init_db()
+
+    # Default source is "arxiv" when not provided.
+    database.upsert_paper(make_paper("1706.03762"))
+    record = database.get_paper("1706.03762")
+    assert record["source"] == "arxiv"
+    assert record["url"] == ""
+
+    # Explicit source/url are persisted.
+    database.upsert_paper(
+        {
+            "arxiv_id": "upload-token",
+            "title": "Uploaded",
+            "authors": ["A"],
+            "abstract": "",
+            "categories": [],
+            "published": "",
+            "pdf_url": "",
+            "source": "upload",
+            "url": "https://example.com/x",
+        }
+    )
+    record = database.get_paper("upload-token")
+    assert record["source"] == "upload"
+    assert record["url"] == "https://example.com/x"

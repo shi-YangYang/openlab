@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react'
 import { Button, Card, Input, Space, Tag } from 'antd'
-import { BulbOutlined, DownloadOutlined, ExperimentOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined } from '@ant-design/icons'
+import { BulbOutlined, DownloadOutlined, ExperimentOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, UploadOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
 interface Props {
   title: string
   workspace: PaperWorkspace
+  onUploadPdf?: () => void
 }
 
-export default function PaperWorkspace({ title, workspace }: Props) {
+export default function PaperWorkspace({ title, workspace, onUploadPdf }: Props) {
   const {
     papers,
     loading,
@@ -17,6 +18,7 @@ export default function PaperWorkspace({ title, workspace }: Props) {
     selectedIds,
     setSelectedIds,
     statusMap,
+    errorMap,
     downloadProgressMap,
     analysisStatusMap,
     analyzingBatch,
@@ -84,6 +86,11 @@ export default function PaperWorkspace({ title, workspace }: Props) {
           <Button icon={<ExperimentOutlined />} disabled={!papers.length} onClick={handleOpenExperiment}>
             生成实验方案
           </Button>
+          {onUploadPdf && (
+            <Button icon={<UploadOutlined />} onClick={onUploadPdf}>
+              上传 PDF
+            </Button>
+          )}
         </Space>
       }
     >
@@ -93,6 +100,7 @@ export default function PaperWorkspace({ title, workspace }: Props) {
         selectedIds={selectedIds}
         onSelect={setSelectedIds}
         statusMap={statusMap}
+        errorMap={errorMap}
         downloadProgressMap={downloadProgressMap}
         showStatus={showStatus}
         analysisStatusMap={analysisStatusMap}

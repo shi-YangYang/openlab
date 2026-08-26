@@ -16,6 +16,7 @@ import PaperWorkspace from './components/PaperWorkspace'
 import SearchHistoryList from './components/SearchHistoryList'
 import InnovationHistoryList from './components/InnovationHistoryList'
 import LlmConfigForm from './components/LlmConfigForm'
+import PlatformLogin from './components/PlatformLogin'
 import ServersPage from './components/ServersPage'
 import ServerDetailPage from './components/ServerDetailPage'
 import AnalysisModal from './components/AnalysisModal'
@@ -23,9 +24,10 @@ import ReviewModal from './components/ReviewModal'
 import InnovationModal from './components/InnovationModal'
 import ExperimentModal from './components/ExperimentModal'
 import AgentPage from './components/AgentPage'
+import UploadPdfModal from './components/UploadPdfModal'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
 import { listServers, searchPapers, searchTopic } from './api'
-import type { AnalysisRecord, Paper, SearchHistoryDetail, Server } from './types'
+import type { AnalysisRecord, Paper, SearchFallback, SearchHistoryDetail, Server } from './types'
 
 const { Header, Content } = Layout
 
@@ -82,6 +84,8 @@ export default function App() {
   const [innovationOpen, setInnovationOpen] = useState(false)
   const [experimentIds, setExperimentIds] = useState<string[]>([])
   const [experimentOpen, setExperimentOpen] = useState(false)
+  const [fallbacks, setFallbacks] = useState<SearchFallback[]>([])
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   const openAnalyze = useCallback((arxivId: string) => {
     setAnalyzeTarget(arxivId)
@@ -125,17 +129,22 @@ export default function App() {
       max_results: values.max_results,
       date_from: values.date_range?.[0]?.format('YYYY-MM-DD'),
       date_to: values.date_range?.[1]?.format('YYYY-MM-DD'),
+      platforms: values.platforms,
     }
     searchWorkspace.setLoading(true)
     setLlmQuery(null)
+    setFallbacks([])
     try {
       let result: Paper[]
       if (values.mode === 'topic') {
         const res = await searchTopic({ topic: values.query, ...params })
         setLlmQuery(res.query)
         result = res.papers
+        setFallbacks(res.fallbacks ?? [])
       } else {
-        result = await searchPapers({ query: values.query, ...params })
+        const res = await searchPapers({ query: values.query, ...params })
+        result = res.papers
+        setFallbacks(res.fallbacks ?? [])
       }
       searchWorkspace.setResults(result)
     } catch (e) {
@@ -148,6 +157,7 @@ export default function App() {
   const handleRestore = (detail: SearchHistoryDetail) => {
     searchWorkspace.setResults(detail.papers)
     setLlmQuery(null)
+    setFallbacks([])
     navigate('/search')
   }
 
@@ -172,6 +182,28 @@ export default function App() {
             <Typography.Text code>{llmQuery}</Typography.Text>
           </Typography.Text>
         )}
+        {fallbacks.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            {fallbacks.map((f) => (
+              <Typography.Text key={f.platform} type="warning" style={{ display: 'block' }}>
+                <InfoCircleOutlined style={{ marginRight: 6 }} />
+                {f.need_login
+                  ? `「${f.platform}」需要登录，请到设置页完成登录后重试。`
+                  : f.expired
+                    ? `「${f.platform}」登录态已过期，请到设置页重新登录。`
+                    : `「${f.platform}」搜索失败。`}
+                <Typography.Link
+                  href={f.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ marginLeft: 8 }}
+                >
+                  前往平台搜索页
+                </Typography.Link>
+              </Typography.Text>
+            ))}
+          </div>
+        )}
       </Card>
       <PaperWorkspace
         title={`搜索结果（${searchWorkspace.papers.length}）`}
@@ -184,6 +216,7 @@ export default function App() {
     <PaperWorkspace
       title={`论文库（${libraryWorkspace.papers.length}）`}
       workspace={libraryWorkspace}
+      onUploadPdf={() => setUploadOpen(true)}
     />
   )
 
@@ -206,9 +239,14 @@ export default function App() {
   )
 
   const settingsPage = (
-    <Card title="LLM 配置">
-      <LlmConfigForm />
-    </Card>
+    <>
+      <Card title="平台登录" style={{ marginBottom: 16 }}>
+        <PlatformLogin />
+      </Card>
+      <Card title="LLM 配置">
+        <LlmConfigForm />
+      </Card>
+    </>
   )
 
   return (
@@ -260,6 +298,11 @@ export default function App() {
           arxivIds={experimentIds}
           open={experimentOpen}
           onClose={() => setExperimentOpen(false)}
+        />
+        <UploadPdfModal
+          open={uploadOpen}
+          onClose={() => setUploadOpen(false)}
+          onSaved={() => void libraryWorkspace.loadLibrary()}
         />
       </Content>
     </Layout>

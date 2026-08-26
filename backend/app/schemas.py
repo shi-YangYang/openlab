@@ -1,7 +1,7 @@
 """Pydantic request/response schemas."""
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Paper(BaseModel):
@@ -12,6 +12,8 @@ class Paper(BaseModel):
     categories: List[str] = Field(default_factory=list)
     published: str = ""
     pdf_url: str = ""
+    source: str = "arxiv"
+    url: str = ""
 
 
 class PaperRecord(Paper):
@@ -19,7 +21,25 @@ class PaperRecord(Paper):
     local_pdf_path: Optional[str] = None
     status: Optional[str] = None
     progress: Optional[int] = 0
+    error: Optional[str] = None
     created_at: Optional[str] = None
+
+
+class SearchFallback(BaseModel):
+    platform: str
+    url: str
+    need_login: bool = False
+    expired: bool = False
+
+
+class PlatformStatus(BaseModel):
+    platform: str
+    state: str
+
+
+class SearchResponse(BaseModel):
+    papers: List[Paper] = Field(default_factory=list)
+    fallbacks: List[SearchFallback] = Field(default_factory=list)
 
 
 class SearchRequest(BaseModel):
@@ -28,6 +48,7 @@ class SearchRequest(BaseModel):
     category: Optional[str] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    platforms: Optional[List[str]] = None
 
 
 class TopicSearchRequest(BaseModel):
@@ -36,11 +57,39 @@ class TopicSearchRequest(BaseModel):
     category: Optional[str] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    platforms: Optional[List[str]] = None
 
 
 class TopicSearchResponse(BaseModel):
     query: str
-    papers: List[Paper]
+    papers: List[Paper] = Field(default_factory=list)
+    fallbacks: List[SearchFallback] = Field(default_factory=list)
+
+
+class PaperMetadata(BaseModel):
+    title: str = ""
+    authors: List[str] = Field(default_factory=list)
+    abstract: str = ""
+    published: str = ""
+
+    @field_validator("authors", mode="before")
+    @classmethod
+    def _normalize_authors(cls, value: Any) -> List[str]:
+        if isinstance(value, str):
+            return [a.strip() for a in value.split(",") if a.strip()]
+        if isinstance(value, list):
+            return [str(a).strip() for a in value if str(a).strip()]
+        return []
+
+
+class PaperUploadResponse(BaseModel):
+    pdf_token: str
+    paper: PaperMetadata
+
+
+class UploadConfirmRequest(BaseModel):
+    pdf_token: str
+    paper: PaperMetadata
 
 
 class SearchHistoryItem(BaseModel):

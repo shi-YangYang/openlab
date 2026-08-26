@@ -1,9 +1,12 @@
 """FastAPI application entry point."""
+import json
 import re
 import shlex
 import shutil
 import tempfile
+import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, List, Optional
@@ -13,14 +16,16 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     FastAPI,
+    File,
     HTTPException,
     Query,
     Request,
+    UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 
-from . import analysis, database, downloader, experiment, export, innovation, monitor, servers, ssh
+from . import analysis, database, downloader, experiment, export, innovation, monitor, pdf, servers, ssh, upload
 from .agent import (
     AgentError,
     create_session,
@@ -35,7 +40,10 @@ from .arxiv import ArxivClient
 from .config import settings
 from .llm import decompose_topic
 from .llm_config import get_effective_config, save_config
+from .pdf import PdfExtractionError
 from .presets import LLM_PRESETS
+from .platforms import browser, sessions
+from .search.aggregator import search as aggregate_search
 from .schemas import (
     AgentApproveRequest,
     AgentChatRequest,
@@ -66,19 +74,22 @@ from .schemas import (
     InnovationRecord,
     InnovationRequest,
     MonitorResponse,
-    Paper,
     PaperRecord,
+    PaperUploadResponse,
+    PlatformStatus,
     ReviewRecord,
     ReviewRequest,
     SearchHistoryDetail,
     SearchHistoryItem,
     SearchRequest,
+    SearchResponse,
     ServerInput,
     ServerOutput,
     ServerUpdate,
     TestConnectionResponse,
     TopicSearchRequest,
     TopicSearchResponse,
+    UploadConfirmRequest,
     UploadResponse,
 )
 
@@ -136,17 +147,23 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/api/search", response_model=List[Paper])
+@app.post("/api/search", response_model=SearchResponse)
 async def search(
     req: SearchRequest,
     arxiv_client: ArxivClient = Depends(get_arxiv_client),
-) -> List[dict]:
-    papers = await arxiv_client.search(
-        req.query, max_results=req.max_results, category=req.category
+) -> dict:
+    result = await aggregate_search(
+        req.query,
+        platforms=req.platforms,
+        max_results=req.max_results,
+        arxiv_client=arxiv_client,
+        category=req.category,
     )
-    result = _filter_by_date(papers, req.date_from, req.date_to)[: req.max_results]
-    database.save_search_history(req.query, "keyword", result)
-    return result
+    papers = _filter_by_date(result["papers"], req.date_from, req.date_to)[
+        : req.max_results
+    ]
+    database.save_search_history(req.query, "keyword", papers)
+    return {"papers": papers, "fallbacks": result["fallbacks"]}
 
 
 @app.post("/api/search/topic", response_model=TopicSearchResponse)
@@ -161,12 +178,18 @@ async def search_topic(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}")
 
-    papers = await arxiv_client.search(
-        query, max_results=req.max_results, category=req.category
+    result = await aggregate_search(
+        query,
+        platforms=req.platforms,
+        max_results=req.max_results,
+        arxiv_client=arxiv_client,
+        category=req.category,
     )
-    papers = _filter_by_date(papers, req.date_from, req.date_to)[: req.max_results]
+    papers = _filter_by_date(result["papers"], req.date_from, req.date_to)[
+        : req.max_results
+    ]
     database.save_search_history(req.topic, "topic", papers)
-    return {"query": query, "papers": papers}
+    return {"query": query, "papers": papers, "fallbacks": result["fallbacks"]}
 
 
 @app.get("/api/search/history", response_model=List[SearchHistoryItem])
@@ -193,6 +216,54 @@ async def delete_search_history(history_id: int) -> dict:
 async def clear_search_history() -> dict:
     database.clear_search_history()
     return {"status": "ok"}
+
+
+def _require_platform(platform: str) -> None:
+    if platform not in sessions.SUPPORTED_PLATFORMS:
+        raise HTTPException(status_code=404, detail=f"Unknown platform: {platform}")
+
+
+@app.get("/api/platforms", response_model=List[PlatformStatus])
+async def list_platforms() -> List[dict]:
+    return sessions.list_states()
+
+
+@app.post("/api/platforms/{platform}/login", response_model=PlatformStatus)
+async def login_platform(platform: str) -> dict:
+    _require_platform(platform)
+    if sessions.get_state(platform) == sessions.LOGGING_IN:
+        return {"platform": platform, "state": sessions.LOGGING_IN}
+    sessions.set_state(platform, sessions.LOGGING_IN)
+    threading.Thread(target=browser.run_login, args=(platform,), daemon=True).start()
+    return {"platform": platform, "state": sessions.LOGGING_IN}
+
+
+@app.get("/api/platforms/{platform}/status", response_model=PlatformStatus)
+async def get_platform_status(platform: str) -> dict:
+    _require_platform(platform)
+    return {"platform": platform, "state": sessions.get_state(platform)}
+
+
+@app.post("/api/platforms/{platform}/logout", response_model=PlatformStatus)
+async def logout_platform(platform: str) -> dict:
+    _require_platform(platform)
+    sessions.delete_state(platform)
+    sessions.set_state(platform, sessions.NOT_LOGGED_IN)
+    return {"platform": platform, "state": sessions.NOT_LOGGED_IN}
+
+
+@app.post("/api/platforms/{platform}/login/complete", response_model=PlatformStatus)
+async def complete_platform_login(platform: str) -> dict:
+    _require_platform(platform)
+    browser.complete_login(platform)
+    return {"platform": platform, "state": sessions.get_state(platform)}
+
+
+@app.post("/api/platforms/{platform}/login/cancel", response_model=PlatformStatus)
+async def cancel_platform_login(platform: str) -> dict:
+    _require_platform(platform)
+    browser.cancel_login(platform)
+    return {"platform": platform, "state": sessions.get_state(platform)}
 
 
 @app.post("/api/download", response_model=DownloadResponse)
@@ -232,6 +303,121 @@ async def get_paper_pdf(arxiv_id: str) -> FileResponse:
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"PDF not found: {arxiv_id}")
     return FileResponse(path, media_type="application/pdf")
+
+
+_TOKEN_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+def _valid_upload_token(token: str) -> bool:
+    return bool(_TOKEN_RE.match(token))
+
+
+_UPLOAD_ID_SAFE_RE = re.compile(r"[^0-9a-zA-Z._-]+")
+
+
+def _slugify_upload_name(filename: str) -> str:
+    stem = Path(filename).stem.strip()
+    slug = _UPLOAD_ID_SAFE_RE.sub("-", stem)
+    slug = re.sub(r"-{2,}", "-", slug).strip(".-_")
+    return slug.lower()
+
+
+def _write_upload_meta(token: str, filename: str) -> None:
+    meta_path = settings.uploads_dir / f"{token}.json"
+    meta_path.write_text(json.dumps({"filename": filename}), encoding="utf-8")
+
+
+def _read_upload_filename(token: str) -> str:
+    meta_path = settings.uploads_dir / f"{token}.json"
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+        return str(data.get("filename") or "")
+    except (OSError, ValueError):
+        return ""
+
+
+def _cleanup_upload(token: str) -> None:
+    (settings.uploads_dir / f"{token}.pdf").unlink(missing_ok=True)
+    (settings.uploads_dir / f"{token}.json").unlink(missing_ok=True)
+
+
+def _build_upload_arxiv_id(filename: str) -> str:
+    slug = _slugify_upload_name(filename)
+    if not slug:
+        slug = uuid.uuid4().hex[:8]
+    return f"upload-{slug}"
+
+
+def _ensure_unique_arxiv_id(base: str) -> str:
+    candidate = base
+    suffix = 0
+    while database.get_paper(candidate) is not None:
+        suffix += 1
+        candidate = f"{base}-{suffix}"
+    return candidate
+
+
+@app.post("/api/papers/upload", response_model=PaperUploadResponse)
+async def upload_paper_pdf(file: UploadFile = File(...)) -> dict:
+    filename = (file.filename or "").strip()
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+
+    token = uuid.uuid4().hex
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = settings.uploads_dir / f"{token}.pdf"
+    tmp_path.write_bytes(await file.read())
+    _write_upload_meta(token, filename)
+
+    try:
+        text = pdf.extract_text(tmp_path)
+    except PdfExtractionError as exc:
+        _cleanup_upload(token)
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    try:
+        metadata = await upload.extract_metadata(text)
+    except ValueError as exc:
+        _cleanup_upload(token)
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        _cleanup_upload(token)
+        raise HTTPException(status_code=502, detail=f"LLM 提取失败: {exc}")
+
+    return {"pdf_token": token, "paper": metadata}
+
+
+@app.post("/api/papers/upload/confirm", response_model=PaperRecord)
+async def confirm_paper_pdf(req: UploadConfirmRequest) -> dict:
+    token = req.pdf_token.strip()
+    if not _valid_upload_token(token):
+        raise HTTPException(status_code=400, detail="无效的上传 token")
+
+    tmp_path = settings.uploads_dir / f"{token}.pdf"
+    if not tmp_path.is_file():
+        raise HTTPException(status_code=404, detail="上传已失效或不存在，请重新上传")
+
+    arxiv_id = _ensure_unique_arxiv_id(_build_upload_arxiv_id(_read_upload_filename(token)))
+    dest = settings.papers_dir / f"{arxiv_id}.pdf"
+    settings.papers_dir.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(tmp_path), str(dest))
+    (settings.uploads_dir / f"{token}.json").unlink(missing_ok=True)
+
+    database.upsert_paper(
+        {
+            "arxiv_id": arxiv_id,
+            "title": req.paper.title,
+            "authors": req.paper.authors,
+            "abstract": req.paper.abstract,
+            "published": req.paper.published,
+            "categories": [],
+            "pdf_url": "",
+            "source": "upload",
+            "url": "",
+        }
+    )
+    database.set_status(arxiv_id, "downloaded", str(dest))
+    return database.get_paper(arxiv_id)
 
 
 @app.get("/api/llm/presets", response_model=List[LLMPreset])

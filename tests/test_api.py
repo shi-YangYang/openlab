@@ -5,13 +5,18 @@ from tests.conftest import make_paper
 
 def test_search_returns_results(client, fake_arxiv):
     fake_arxiv([make_paper("1706.03762"), make_paper("2301.12345", title="Two")])
-    resp = client.post("/api/search", json={"query": "attention", "max_results": 10})
+    resp = client.post("/api/search", json={
+        "query": "attention", "max_results": 10, "platforms": ["arxiv"],
+    })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) == 2
-    assert data[0]["arxiv_id"] == "1706.03762"
-    for field in ("title", "authors", "abstract", "categories", "published", "arxiv_id"):
-        assert field in data[0]
+    assert "papers" in data
+    assert "fallbacks" in data
+    papers = data["papers"]
+    assert len(papers) == 2
+    assert papers[0]["arxiv_id"] == "1706.03762"
+    for field in ("title", "authors", "abstract", "categories", "published", "arxiv_id", "source"):
+        assert field in papers[0]
 
 
 def test_search_filters_by_category_and_date(client, fake_arxiv):
@@ -25,11 +30,12 @@ def test_search_filters_by_category_and_date(client, fake_arxiv):
         "category": "cs.AI",
         "date_from": "2024-03-01",
         "date_to": "2024-12-31",
+        "platforms": ["arxiv"],
     })
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) == 1
-    assert data[0]["arxiv_id"] == "2"
+    assert len(data["papers"]) == 1
+    assert data["papers"][0]["arxiv_id"] == "2"
     assert fake.queries[0][2] == "cs.AI"
 
 
@@ -40,11 +46,14 @@ def test_search_topic_decomposes(client, fake_arxiv, monkeypatch):
     monkeypatch.setattr("app.main.decompose_topic", fake_decompose)
     fake_arxiv([make_paper("1706.03762")])
 
-    resp = client.post("/api/search/topic", json={"topic": "transformers", "max_results": 10})
+    resp = client.post("/api/search/topic", json={
+        "topic": "transformers", "max_results": 10, "platforms": ["arxiv"],
+    })
     assert resp.status_code == 200
     data = resp.json()
     assert data["query"] == "attention mechanism transformer"
     assert len(data["papers"]) == 1
+    assert data["fallbacks"] == []
 
 
 def test_search_topic_without_api_key(client, monkeypatch):
@@ -53,7 +62,9 @@ def test_search_topic_without_api_key(client, monkeypatch):
         "api_key": "",
         "model": "gpt-4o-mini",
     })
-    resp = client.post("/api/search/topic", json={"topic": "x", "max_results": 10})
+    resp = client.post("/api/search/topic", json={
+        "topic": "x", "max_results": 10, "platforms": ["arxiv"],
+    })
     assert resp.status_code == 400
 
 
@@ -101,6 +112,22 @@ def test_download_failure_marks_failed(client, monkeypatch):
     assert resp.status_code == 200
     records = client.get("/api/papers", params={"arxiv_ids": "9999.9999"}).json()
     assert records[0]["status"] == "failed"
+    assert records[0]["error"] == "下载失败"
+
+
+def test_download_failure_reason_maps_to_short_label(client, monkeypatch):
+    from app.platforms import LoginExpiredError
+
+    async def fail_expired(arxiv_id, pdf_url, client, on_progress=None):
+        raise LoginExpiredError("cnki")
+
+    monkeypatch.setattr(downloader, "download_pdf", fail_expired)
+
+    resp = client.post("/api/download", json={"papers": [make_paper("9999.9999")]})
+    assert resp.status_code == 200
+    records = client.get("/api/papers", params={"arxiv_ids": "9999.9999"}).json()
+    assert records[0]["status"] == "failed"
+    assert records[0]["error"] == "登录已过期"
 
 
 def test_download_retries_then_succeeds(client, monkeypatch):
@@ -140,6 +167,70 @@ def test_download_retries_exhausted(client, monkeypatch):
     records = client.get("/api/papers", params={"arxiv_ids": "9999.9999"}).json()
     assert records[0]["status"] == "failed"
     assert attempts["n"] == config.settings.download_max_retries + 1
+
+
+def test_download_cnki_paper_routes_to_browser(client, monkeypatch):
+    def fake_download_cnki_pdf(article_url, dest_path):
+        with open(dest_path, "wb") as f:
+            f.write(b"%PDF-1.4 cnki")
+
+    monkeypatch.setattr("app.platforms.browser.download_cnki_pdf", fake_download_cnki_pdf)
+
+    paper = {
+        "arxiv_id": "cnki-abc123",
+        "title": "知网论文",
+        "authors": ["张三"],
+        "abstract": "",
+        "categories": [],
+        "published": "2024-01-15",
+        "pdf_url": "",
+        "source": "cnki",
+        "url": "https://kns.cnki.net/kcms2/article/abstract?v=abc",
+    }
+    resp = client.post("/api/download", json={"papers": [paper]})
+    assert resp.status_code == 200
+    assert resp.json()["accepted"] == ["cnki-abc123"]
+
+    records = client.get("/api/papers", params={"arxiv_ids": "cnki-abc123"}).json()
+    assert records[0]["status"] == "downloaded"
+    assert (settings.papers_dir / "cnki-abc123.pdf").exists()
+
+
+def test_download_cnki_paper_without_url_fails(client):
+    paper = {
+        "arxiv_id": "cnki-abc123",
+        "title": "知网论文",
+        "authors": ["张三"],
+        "abstract": "",
+        "categories": [],
+        "published": "2024-01-15",
+        "pdf_url": "",
+        "source": "cnki",
+        "url": "",
+    }
+    resp = client.post("/api/download", json={"papers": [paper]})
+    assert resp.status_code == 200
+    records = client.get("/api/papers", params={"arxiv_ids": "cnki-abc123"}).json()
+    assert records[0]["status"] == "failed"
+
+
+def test_download_baidu_paper_fails_with_clear_reason(client):
+    paper = {
+        "arxiv_id": "baidu-abc123",
+        "title": "百度学术论文",
+        "authors": ["张三"],
+        "abstract": "",
+        "categories": [],
+        "published": "2021",
+        "pdf_url": "",
+        "source": "baidu_xueshu",
+        "url": "https://xueshu.baidu.com/usercenter/paper/show?paperid=1",
+    }
+    resp = client.post("/api/download", json={"papers": [paper]})
+    assert resp.status_code == 200
+    records = client.get("/api/papers", params={"arxiv_ids": "baidu-abc123"}).json()
+    assert records[0]["status"] == "failed"
+    assert records[0]["error"] == "无直接 PDF"
 
 
 def test_api_key_default_empty(monkeypatch):

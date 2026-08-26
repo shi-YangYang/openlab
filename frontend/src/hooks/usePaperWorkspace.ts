@@ -17,6 +17,7 @@ export function usePaperWorkspace(options: Options = {}) {
   const [downloading, setDownloading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [statusMap, setStatusMap] = useState<Record<string, string>>({})
+  const [errorMap, setErrorMap] = useState<Record<string, string>>({})
   const [downloadProgressMap, setDownloadProgressMap] = useState<Record<string, number>>({})
   const [analysisStatusMap, setAnalysisStatusMap] = useState<Record<string, AnalysisStatusInfo>>({})
   const [analyzingBatch, setAnalyzingBatch] = useState(false)
@@ -25,12 +26,15 @@ export function usePaperWorkspace(options: Options = {}) {
     try {
       const records = await listPapers(ids)
       const map: Record<string, string> = {}
+      const err: Record<string, string> = {}
       const prog: Record<string, number> = {}
       for (const r of records) {
         map[r.arxiv_id] = r.status ?? ''
+        if (r.error) err[r.arxiv_id] = r.error
         if (r.progress != null) prog[r.arxiv_id] = r.progress
       }
       setStatusMap((prev) => ({ ...prev, ...map }))
+      setErrorMap((prev) => ({ ...prev, ...err }))
       setDownloadProgressMap((prev) => ({ ...prev, ...prog }))
     } catch {
       // ignore status refresh errors
@@ -42,18 +46,23 @@ export function usePaperWorkspace(options: Options = {}) {
     while (Date.now() < deadline) {
       try {
         const records = await listPapers(ids)
-        const map: Record<string, string> = {}
-        const prog: Record<string, number> = {}
-        for (const r of records) {
-          map[r.arxiv_id] = r.status ?? ''
-          if (r.progress != null) prog[r.arxiv_id] = r.progress
+        if (records.length > 0) {
+          const map: Record<string, string> = {}
+          const err: Record<string, string> = {}
+          const prog: Record<string, number> = {}
+          for (const r of records) {
+            map[r.arxiv_id] = r.status ?? ''
+            if (r.error) err[r.arxiv_id] = r.error
+            if (r.progress != null) prog[r.arxiv_id] = r.progress
+          }
+          setStatusMap((prev) => ({ ...prev, ...map }))
+          setErrorMap((prev) => ({ ...prev, ...err }))
+          setDownloadProgressMap((prev) => ({ ...prev, ...prog }))
+          const terminal = records.every(
+            (r) => r.status === 'downloaded' || r.status === 'failed',
+          )
+          if (terminal) return
         }
-        setStatusMap((prev) => ({ ...prev, ...map }))
-        setDownloadProgressMap((prev) => ({ ...prev, ...prog }))
-        const terminal = records.every(
-          (r) => r.status === 'downloaded' || r.status === 'failed',
-        )
-        if (terminal) return
       } catch {
         // ignore transient errors and keep polling
       }
@@ -77,8 +86,13 @@ export function usePaperWorkspace(options: Options = {}) {
   const pollAnalysisStatuses = useCallback(async (ids: string[]) => {
     const deadline = Date.now() + 600000
     while (Date.now() < deadline) {
+      let records: AnalysisRecord[] = []
       try {
-        const records = await listAnalyses(ids)
+        records = await listAnalyses(ids)
+      } catch {
+        records = []
+      }
+      if (records.length > 0) {
         const map: Record<string, AnalysisStatusInfo> = {}
         for (const r of records) {
           map[r.arxiv_id] = { status: r.status ?? '', progress: r.progress, message: r.message }
@@ -88,8 +102,6 @@ export function usePaperWorkspace(options: Options = {}) {
           (r) => r.status === 'done' || r.status === 'failed',
         )
         if (terminal) return
-      } catch {
-        // ignore transient errors and keep polling
       }
       await new Promise((res) => setTimeout(res, 1500))
     }
@@ -113,12 +125,15 @@ export function usePaperWorkspace(options: Options = {}) {
       setPapers(records)
       setSelectedIds([])
       const map: Record<string, string> = {}
+      const err: Record<string, string> = {}
       const prog: Record<string, number> = {}
       for (const r of records) {
         map[r.arxiv_id] = r.status ?? ''
+        if (r.error) err[r.arxiv_id] = r.error
         if (r.progress != null) prog[r.arxiv_id] = r.progress
       }
       setStatusMap(map)
+      setErrorMap(err)
       setDownloadProgressMap(prog)
       if (records.length) {
         void refreshAnalysisStatuses(records.map((r) => r.arxiv_id))
@@ -129,11 +144,12 @@ export function usePaperWorkspace(options: Options = {}) {
   }, [message, refreshAnalysisStatuses])
 
   const handleDownload = async () => {
-    const targets = selectedIds.length
+    const selected = selectedIds.length
       ? papers.filter((p) => selectedIds.includes(p.arxiv_id))
       : papers
+    const targets = selected.filter((p) => p.source !== 'baidu_xueshu')
     if (!targets.length) {
-      message.warning('没有可下载的论文')
+      message.warning('没有可下载的论文（百度学术论文请通过「查看原文」获取全文）')
       return
     }
     setDownloading(true)
@@ -153,11 +169,12 @@ export function usePaperWorkspace(options: Options = {}) {
   }
 
   const handleBatchAnalyze = async () => {
-    const targets = selectedIds.length
+    const selected = selectedIds.length
       ? papers.filter((p) => selectedIds.includes(p.arxiv_id))
       : papers
+    const targets = selected.filter((p) => p.source !== 'baidu_xueshu')
     if (!targets.length) {
-      message.warning('没有可分析的论文')
+      message.warning('没有可分析的论文（百度学术论文请通过「查看原文」获取全文）')
       return
     }
     setAnalyzingBatch(true)
@@ -225,6 +242,7 @@ export function usePaperWorkspace(options: Options = {}) {
     selectedIds,
     setSelectedIds,
     statusMap,
+    errorMap,
     downloadProgressMap,
     analysisStatusMap,
     analyzingBatch,

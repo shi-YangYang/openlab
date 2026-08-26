@@ -15,11 +15,15 @@ import type {
   LlmTestResult,
   MonitorData,
   Paper,
+  PaperMetadata,
   PaperRecord,
+  PaperUploadResult,
+  PlatformStatus,
   ReviewRecord,
   SearchHistoryDetail,
   SearchHistoryItem,
   SearchParams,
+  SearchResult,
   Server,
   ServerInput,
   ServerTestResult,
@@ -90,8 +94,8 @@ async function del(path: string): Promise<void> {
   }
 }
 
-export async function searchPapers(params: SearchParams): Promise<Paper[]> {
-  return post<Paper[]>('/search', params)
+export async function searchPapers(params: SearchParams): Promise<SearchResult> {
+  return post<SearchResult>('/search', params)
 }
 
 export async function searchTopic(params: TopicSearchParams): Promise<TopicSearchResult> {
@@ -102,8 +106,25 @@ export async function downloadPapers(papers: Paper[]): Promise<DownloadResult> {
   return post<DownloadResult>('/download', { papers })
 }
 
+export async function uploadPdf(file: File): Promise<PaperUploadResult> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE}/papers/upload`, { method: 'POST', body: form })
+  if (!res.ok) {
+    await throwForStatus(res)
+  }
+  return res.json()
+}
+
+export async function confirmUpload(
+  pdfToken: string,
+  paper: PaperMetadata,
+): Promise<PaperRecord> {
+  return post<PaperRecord>('/papers/upload/confirm', { pdf_token: pdfToken, paper })
+}
+
 export async function listPapers(arxivIds?: string[]): Promise<PaperRecord[]> {
-  const qs = arxivIds && arxivIds.length ? `?arxiv_ids=${arxivIds.join(',')}` : ''
+  const qs = arxivIds && arxivIds.length ? `?arxiv_ids=${encodeURIComponent(arxivIds.join(','))}` : ''
   const res = await fetch(`${BASE}/papers${qs}`)
   if (!res.ok) {
     throw new Error(await res.text())
@@ -143,6 +164,30 @@ export async function testLlmConnection(config: Partial<LlmConfig>): Promise<Llm
   return post<LlmTestResult>('/llm/test', config)
 }
 
+export async function listPlatforms(): Promise<PlatformStatus[]> {
+  return get<PlatformStatus[]>('/platforms')
+}
+
+export async function loginPlatform(platform: string): Promise<PlatformStatus> {
+  return post<PlatformStatus>(`/platforms/${platform}/login`, {})
+}
+
+export async function getPlatformStatus(platform: string): Promise<PlatformStatus> {
+  return get<PlatformStatus>(`/platforms/${platform}/status`)
+}
+
+export async function logoutPlatform(platform: string): Promise<PlatformStatus> {
+  return post<PlatformStatus>(`/platforms/${platform}/logout`, {})
+}
+
+export async function completePlatformLogin(platform: string): Promise<PlatformStatus> {
+  return post<PlatformStatus>(`/platforms/${platform}/login/complete`, {})
+}
+
+export async function cancelPlatformLogin(platform: string): Promise<PlatformStatus> {
+  return post<PlatformStatus>(`/platforms/${platform}/login/cancel`, {})
+}
+
 export async function analyzePaper(
   arxivId: string,
   language: AnalysisLanguage,
@@ -162,7 +207,7 @@ export async function getAnalysis(arxivId: string): Promise<AnalysisRecord> {
 }
 
 export async function listAnalyses(arxivIds?: string[]): Promise<AnalysisRecord[]> {
-  const qs = arxivIds && arxivIds.length ? `?arxiv_ids=${arxivIds.join(',')}` : ''
+  const qs = arxivIds && arxivIds.length ? `?arxiv_ids=${encodeURIComponent(arxivIds.join(','))}` : ''
   return get<AnalysisRecord[]>(`/analyses${qs}`)
 }
 

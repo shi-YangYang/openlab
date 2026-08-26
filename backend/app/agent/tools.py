@@ -16,6 +16,7 @@ from .. import analysis, database, downloader, experiment, innovation, monitor, 
 from ..arxiv import ArxivClient
 from ..config import settings
 from ..llm import decompose_topic
+from ..search.aggregator import ALL_PLATFORMS, search as aggregate_search
 from . import sandbox
 
 # Tools that require explicit user approval before execution (FR-8/FR-9).
@@ -49,11 +50,19 @@ def _current_session() -> Optional[str]:
 class SearchPapersArgs(BaseModel):
     query: str = Field(..., description="arXiv 检索关键词或检索式（英文）")
     max_results: int = Field(10, ge=1, le=100, description="返回结果数量")
+    platforms: Optional[List[str]] = Field(
+        None,
+        description=f"搜索平台列表，可选值：{', '.join(ALL_PLATFORMS)}；不传则搜索全部",
+    )
 
 
 class SearchByTopicArgs(BaseModel):
     topic: str = Field(..., description="研究主题描述（可用中文或英文）")
     max_results: int = Field(10, ge=1, le=100, description="返回结果数量")
+    platforms: Optional[List[str]] = Field(
+        None,
+        description=f"搜索平台列表，可选值：{', '.join(ALL_PLATFORMS)}；不传则搜索全部",
+    )
 
 
 class DownloadPapersArgs(BaseModel):
@@ -167,15 +176,38 @@ def _summarize(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ]
 
 
-async def search_papers(query: str, max_results: int = 10) -> Dict[str, Any]:
-    papers = await _get_arxiv_client().search(query, max_results=max_results)
-    return {"count": len(papers), "papers": _summarize(papers)}
+async def search_papers(
+    query: str, max_results: int = 10, platforms: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    result = await aggregate_search(
+        query,
+        platforms=platforms,
+        max_results=max_results,
+        arxiv_client=_get_arxiv_client(),
+    )
+    return {
+        "count": len(result["papers"]),
+        "papers": _summarize(result["papers"]),
+        "fallbacks": result["fallbacks"],
+    }
 
 
-async def search_by_topic(topic: str, max_results: int = 10) -> Dict[str, Any]:
+async def search_by_topic(
+    topic: str, max_results: int = 10, platforms: Optional[List[str]] = None
+) -> Dict[str, Any]:
     query = await decompose_topic(topic)
-    papers = await _get_arxiv_client().search(query, max_results=max_results)
-    return {"query": query, "count": len(papers), "papers": _summarize(papers)}
+    result = await aggregate_search(
+        query,
+        platforms=platforms,
+        max_results=max_results,
+        arxiv_client=_get_arxiv_client(),
+    )
+    return {
+        "query": query,
+        "count": len(result["papers"]),
+        "papers": _summarize(result["papers"]),
+        "fallbacks": result["fallbacks"],
+    }
 
 
 async def download_papers(arxiv_ids: List[str]) -> Dict[str, Any]:
@@ -394,13 +426,14 @@ TOOLS: List[StructuredTool] = [
     _tool(
         search_papers,
         "search_papers",
-        "按关键词/检索式在 arXiv 检索论文，返回论文 arxiv_id、标题、摘要与发表日期。",
+        "按关键词/检索式在多平台（arXiv/Semantic Scholar/百度学术/知网）检索论文，"
+        "返回论文 arxiv_id、标题、摘要与发表日期；失败平台以 fallback 外链返回。",
         SearchPapersArgs,
     ),
     _tool(
         search_by_topic,
         "search_by_topic",
-        "把一段研究主题描述拆解为检索式后在 arXiv 检索论文。",
+        "把一段研究主题描述拆解为检索式后在多平台检索论文。",
         SearchByTopicArgs,
     ),
     _tool(

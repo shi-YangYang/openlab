@@ -6,6 +6,8 @@ export interface Paper {
   categories: string[]
   published: string
   pdf_url: string
+  source?: string
+  url?: string
 }
 
 export interface PaperRecord extends Paper {
@@ -13,13 +15,43 @@ export interface PaperRecord extends Paper {
   local_pdf_path?: string | null
   status?: string
   progress?: number
+  error?: string | null
   created_at?: string
+}
+
+export type SearchPlatform = 'arxiv' | 'semantic_scholar' | 'baidu_xueshu' | 'cnki'
+
+export const SEARCH_PLATFORMS: { value: SearchPlatform; label: string }[] = [
+  { value: 'arxiv', label: 'arXiv' },
+  { value: 'semantic_scholar', label: 'Semantic Scholar' },
+  { value: 'baidu_xueshu', label: '百度学术' },
+  { value: 'cnki', label: '知网 CNKI' },
+]
+
+export interface SearchFallback {
+  platform: string
+  url: string
+  need_login?: boolean
+  expired?: boolean
+}
+
+export type PlatformState = 'not_logged_in' | 'logging_in' | 'logged_in' | 'expired'
+
+export interface PlatformStatus {
+  platform: string
+  state: PlatformState
+}
+
+export interface SearchResult {
+  papers: Paper[]
+  fallbacks: SearchFallback[]
 }
 
 export interface SearchBase {
   max_results: number
   date_from?: string
   date_to?: string
+  platforms?: SearchPlatform[]
 }
 
 export interface SearchParams extends SearchBase {
@@ -33,6 +65,19 @@ export interface TopicSearchParams extends SearchBase {
 export interface TopicSearchResult {
   query: string
   papers: Paper[]
+  fallbacks: SearchFallback[]
+}
+
+export interface PaperMetadata {
+  title: string
+  authors: string[]
+  abstract: string
+  published: string
+}
+
+export interface PaperUploadResult {
+  pdf_token: string
+  paper: PaperMetadata
 }
 
 export interface DownloadResult {
