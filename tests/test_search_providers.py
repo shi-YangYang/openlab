@@ -2,6 +2,7 @@
 import httpx
 import pytest
 
+from app.config import settings
 from app.platforms import LoginExpiredError, LoginRequiredError
 from app.search import aggregator
 from app.search import _html
@@ -9,6 +10,8 @@ from app.search.arxiv import ArxivSearchProvider
 from app.search.baidu_xueshu import BaiduXueshuProvider
 from app.search.cnki import CnkiProvider
 from app.search.semantic_scholar import SemanticScholarProvider
+
+S2_API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 
 
 class FakeResponse:
@@ -47,6 +50,50 @@ class FakeAsyncClient:
 
     async def aclose(self):
         pass
+
+
+class StubResponse(FakeResponse):
+    """Response whose raise_for_status carries status + headers like httpx does."""
+
+    def __init__(self, json_data, status_code=200, headers=None):
+        super().__init__(json_data, status_code)
+        self.extra_headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            request = httpx.Request("GET", S2_API_URL)
+            response = httpx.Response(
+                self.status_code, request=request, headers=dict(self.extra_headers)
+            )
+            raise httpx.HTTPStatusError(
+                f"HTTP {self.status_code}", request=request, response=response
+            )
+
+
+class ScriptedClient:
+    """AsyncClient stub that answers each get() with the next canned item."""
+
+    def __init__(self, script):
+        self._script = list(script)
+        self.calls = 0
+        self.headers = None
+
+    async def get(self, url, params=None, headers=None):
+        self.calls += 1
+        self.headers = headers
+        step = self._script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    async def aclose(self):
+        pass
+
+
+def make_rate_limit_error():
+    request = httpx.Request("GET", S2_API_URL)
+    response = httpx.Response(429, request=request)
+    return httpx.HTTPStatusError("HTTP 429", request=request, response=response)
 
 
 def test_build_providers_all_and_filtered():
@@ -145,8 +192,71 @@ async def test_aggregator_merges_and_falls_back(monkeypatch):
             "url": "https://xueshu.baidu.com/s?wd=x",
             "need_login": False,
             "expired": False,
+            "message": "timeout",
         }
     ]
+
+
+async def test_aggregator_fallback_message_for_rate_limit(monkeypatch):
+    class OkProvider:
+        name = "arxiv"
+
+        async def search(self, query, max_results=10):
+            return []
+
+        def fallback_url(self, query):
+            return "https://arxiv.org/search/?query=x"
+
+    class RateLimitedProvider:
+        name = "semantic_scholar"
+
+        async def search(self, query, max_results=10):
+            raise make_rate_limit_error()
+
+        def fallback_url(self, query):
+            return "https://www.semanticscholar.org/search?q=x"
+
+    monkeypatch.setattr(
+        aggregator,
+        "build_providers",
+        lambda platforms=None, arxiv_client=None, category=None: [
+            OkProvider(),
+            RateLimitedProvider(),
+        ],
+    )
+
+    result = await aggregator.search("x", platforms=["arxiv", "semantic_scholar"])
+
+    assert result["papers"] == []
+    fallback = result["fallbacks"][0]
+    assert fallback["platform"] == "semantic_scholar"
+    assert fallback["need_login"] is False
+    assert fallback["expired"] is False
+    assert fallback["message"] == "官方接口限流(429)，已自动重试仍未恢复"
+
+
+async def test_aggregator_login_error_keeps_no_message(monkeypatch):
+    class LoginGateProvider:
+        name = "cnki"
+
+        async def search(self, query, max_results=10):
+            raise LoginRequiredError("cnki")
+
+        def fallback_url(self, query):
+            return "https://kns.cnki.net/kns8/defaultresult/index?dbcode=CJFQ"
+
+    monkeypatch.setattr(
+        aggregator,
+        "build_providers",
+        lambda platforms=None, arxiv_client=None, category=None: [LoginGateProvider()],
+    )
+
+    result = await aggregator.search("x", platforms=["cnki"])
+
+    fallback = result["fallbacks"][0]
+    assert fallback["need_login"] is True
+    assert fallback["expired"] is False
+    assert "message" not in fallback
 
 
 async def test_baidu_provider_requires_login_without_state(monkeypatch):
@@ -206,6 +316,53 @@ async def test_semantic_scholar_sends_user_agent():
     assert client.headers is not None
     assert "Mozilla" in client.headers["User-Agent"]
     assert client.headers["Accept"] == "application/json"
+
+
+async def test_semantic_scholar_retries_on_rate_limit(monkeypatch):
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("app.search.semantic_scholar.asyncio.sleep", fake_sleep)
+    client = ScriptedClient(
+        [
+            StubResponse({}, status_code=429, headers={"Retry-After": "0"}),
+            StubResponse({"data": [{"paperId": "p1", "title": "Attention Is All You Need"}]}),
+        ]
+    )
+    provider = SemanticScholarProvider(client=client)
+    papers = await provider.search("attention")
+
+    assert client.calls == 2
+    assert [p["title"] for p in papers] == ["Attention Is All You Need"]
+    assert sleeps == [0.0]
+
+
+async def test_semantic_scholar_retries_exhausted_raises(monkeypatch):
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("app.search.semantic_scholar.asyncio.sleep", fake_sleep)
+    client = ScriptedClient([StubResponse({}, status_code=429) for _ in range(3)])
+    provider = SemanticScholarProvider(client=client)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await provider.search("attention")
+
+    assert client.calls == 3
+    assert sleeps == [1.0, 2.0]
+
+
+async def test_semantic_scholar_sends_api_key_header(monkeypatch):
+    monkeypatch.setattr(settings, "semantic_scholar_api_key", "ss-key")
+    client = FakeAsyncClient(response=FakeResponse({"data": []}))
+    provider = SemanticScholarProvider(client=client)
+    await provider.search("attention")
+
+    assert client.headers["x-api-key"] == "ss-key"
 
 
 async def test_baidu_provider_searches_with_login_state(monkeypatch):

@@ -60,6 +60,15 @@ class Settings:
             "SEARCH_HISTORY_SNAPSHOT_LIMIT", 50
         )
 
+        # Semantic Scholar: optional API key raises the official Graph API quota.
+        self.semantic_scholar_api_key: str = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+
+        # Outbound proxy for external HTTP (search/download) is user-configurable
+        # in the settings UI and persisted inside the LLM config file; see
+        # ``llm_config.get_http_proxy``. Kept here only as documentation of the
+        # fallback env var name.
+        self.http_proxy_env_name: str = "HTTP_PROXY_OVERRIDE"
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.papers_dir.mkdir(parents=True, exist_ok=True)

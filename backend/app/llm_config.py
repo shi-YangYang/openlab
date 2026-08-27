@@ -25,6 +25,9 @@ from typing import Any, Dict, List, Optional
 from .config import settings
 
 CONFIG_FILENAME = "llm_config.json"
+PROXY_KEY = "proxy"
+
+_PROXY_PLACEHOLDER = "\x00empty\x00"
 
 _DEFAULTS = {
     "base_url": "https://api.openai.com/v1",
@@ -92,6 +95,27 @@ def _as_reasoning_efforts(value: Any) -> List[str]:
         return result
     text = str(value).strip() if value is not None else ""
     return [text] if text else []
+
+
+def _normalize_proxy(value: Any) -> str:
+    """Normalize a proxy setting to a trimmed string (empty = unset)."""
+    text = str(value).strip() if value is not None else ""
+    if text and "://" not in text:
+        # Accept bare ``host:port`` and default to the HTTP scheme.
+        text = f"http://{text}"
+    return text
+
+
+def get_http_proxy() -> str:
+    """Resolve the outbound HTTP proxy for search/download requests.
+
+    Priority: the ``proxy`` key in the local config file (saved via settings
+    UI), then ``HTTP_PROXY_OVERRIDE``, then empty (direct connection).
+    """
+    data = _load_raw()
+    if data is not None and isinstance(data, dict) and PROXY_KEY in data:
+        return _normalize_proxy(data.get(PROXY_KEY))
+    return os.getenv("HTTP_PROXY_OVERRIDE", "").strip()
 
 
 def _normalize_group(group: Any) -> Optional[Dict[str, Any]]:
@@ -234,7 +258,11 @@ def load_config() -> Dict[str, Any]:
     ):
         migrated = {"active_group": "default", "groups": [_legacy_to_group(data)]}
         _write(migrated)
-        return migrated
+        return {
+            "active_group": migrated["active_group"],
+            "groups": migrated["groups"],
+            PROXY_KEY: _normalize_proxy(data.get(PROXY_KEY)),
+        }
 
     raw_groups = data.get("groups") if isinstance(data.get("groups"), list) else []
     groups = [
@@ -248,7 +276,11 @@ def load_config() -> Dict[str, Any]:
     active_group = str(data.get("active_group") or "")
     if active_group not in {g["id"] for g in groups}:
         active_group = groups[0]["id"]
-    return {"active_group": active_group, "groups": groups}
+    return {
+        "active_group": active_group,
+        "groups": groups,
+        PROXY_KEY: _normalize_proxy(data.get(PROXY_KEY)),
+    }
 
 
 def save_config(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -274,7 +306,18 @@ def save_config(data: Dict[str, Any]) -> Dict[str, Any]:
     if active_group not in ids:
         raise ValueError("active_group 必须指向已存在的配置组")
 
-    payload = {"active_group": active_group, "groups": groups}
+    payload = {
+        "active_group": active_group,
+        "groups": groups,
+        # Proxy is optional on save: when omitted (e.g. the LLM form saving its
+        # own section), preserve the previously stored value; the proxy panel
+        # always sends it explicitly.
+        PROXY_KEY: (
+            _normalize_proxy(data[PROXY_KEY])
+            if PROXY_KEY in data
+            else _normalize_proxy((_load_raw() or {}).get(PROXY_KEY))
+        ),
+    }
     _write(payload)
     return payload
 

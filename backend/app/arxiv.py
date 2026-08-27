@@ -12,6 +12,9 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .config import settings
+from .llm_config import get_http_proxy
+
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
 API_URL = "https://export.arxiv.org/api/query"
@@ -34,7 +37,9 @@ class ArxivClient:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=30.0)
+            self._client = httpx.AsyncClient(
+                timeout=30.0, proxy=get_http_proxy() or None
+            )
         return self._client
 
     async def aclose(self) -> None:

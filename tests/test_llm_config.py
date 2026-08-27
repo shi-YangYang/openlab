@@ -78,6 +78,7 @@ def test_save_and_load_config_round_trip(tmp_path, monkeypatch):
     assert path.exists()
     assert saved["active_group"] == "oai"
     assert saved["groups"][0]["api_key"] == "sk-abc"
+    assert saved["proxy"] == ""
     assert llm_config.load_config() == saved
 
 
@@ -335,6 +336,41 @@ def test_effective_config_reasoning_effort_empty_when_list_empty(tmp_path, monke
         }
     )
     assert llm_config.get_effective_config()["reasoning_effort"] == ""
+
+
+def test_proxy_save_load_and_clear(tmp_path, monkeypatch):
+    path = _set_config_path(tmp_path, monkeypatch)
+    cfg = llm_config.save_config(
+        {
+            "active_group": "oai",
+            "groups": [_group()],
+            # Bare host:port is normalized to the http scheme.
+            "proxy": "127.0.0.1:7897",
+        }
+    )
+    assert cfg["proxy"] == "http://127.0.0.1:7897"
+    assert llm_config.get_http_proxy() == "http://127.0.0.1:7897"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["proxy"] == "http://127.0.0.1:7897"
+
+    # Explicitly clearing the proxy removes it even if an env fallback exists.
+    monkeypatch.setenv("HTTP_PROXY_OVERRIDE", "http://from-env:1")
+    llm_config.save_config(
+        {"active_group": "oai", "groups": [_group()], "proxy": ""}
+    )
+    assert llm_config.get_http_proxy() == ""
+
+    # Absent key -> env fallback.
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["proxy"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert llm_config.get_http_proxy() == "http://from-env:1"
+
+    # No LLM_CONFIG_PATH -> no config file -> env fallback only. Point the
+    # app's data dir at an empty tmp dir so the real user config can't leak in.
+    monkeypatch.delenv("LLM_CONFIG_PATH")
+    monkeypatch.setattr(config.settings, "data_dir", tmp_path / "data")
+    assert llm_config.get_http_proxy() == "http://from-env:1"
 
 
 def test_llm_presets_endpoint(client):

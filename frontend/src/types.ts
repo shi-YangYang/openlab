@@ -33,6 +33,7 @@ export interface SearchFallback {
   url: string
   need_login?: boolean
   expired?: boolean
+  message?: string | null
 }
 
 export type PlatformState = 'not_logged_in' | 'logging_in' | 'logged_in' | 'expired'
@@ -127,6 +128,7 @@ export interface LlmGroup {
 export interface LlmGroupsConfig {
   active_group: string
   groups: LlmGroup[]
+  proxy?: string | null
 }
 
 export interface LlmTestResult {

@@ -30,6 +30,7 @@ class SearchFallback(BaseModel):
     url: str
     need_login: bool = False
     expired: bool = False
+    message: Optional[str] = None
 
 
 class PlatformStatus(BaseModel):
@@ -143,6 +144,8 @@ class LLMGroup(BaseModel):
 class LLMConfigResponse(BaseModel):
     active_group: str
     groups: List[LLMGroup] = Field(default_factory=list)
+    # Outbound HTTP proxy for search/download; empty = direct connection.
+    proxy: Optional[str] = None
 
 
 class LLMModelsRequest(BaseModel):

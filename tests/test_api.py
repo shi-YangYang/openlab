@@ -279,7 +279,10 @@ class _FakeStreamClient:
 async def test_download_pdf_streams_and_reports_progress(monkeypatch, tmp_path):
     monkeypatch.setattr(config.settings, "papers_dir", tmp_path / "papers")
     data = b"x" * 200
-    resp = _FakeStreamResponse([data[:100], data[100:]], headers={"content-length": "200"})
+    resp = _FakeStreamResponse(
+        [data[:100], data[100:]],
+        headers={"content-length": "200", "content-type": "application/pdf"},
+    )
     client = _FakeStreamClient(resp)
     progress = []
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { App as AntApp, Card, Layout, Menu, Spin, Typography } from 'antd'
+import { App as AntApp, Card, Collapse, Layout, Menu, Spin, Typography } from 'antd'
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   BookOutlined,
@@ -17,6 +17,7 @@ import SearchHistoryList from './components/SearchHistoryList'
 import InnovationHistoryList from './components/InnovationHistoryList'
 import ExperimentHistoryList from './components/ExperimentHistoryList'
 import LlmConfigForm from './components/LlmConfigForm'
+import ProxySettings from './components/ProxySettings'
 import PlatformLogin from './components/PlatformLogin'
 import ServersPage from './components/ServersPage'
 import ServerDetailPage from './components/ServerDetailPage'
@@ -198,7 +199,7 @@ export default function App() {
                   ? `「${f.platform}」需要登录，请到设置页完成登录后重试。`
                   : f.expired
                     ? `「${f.platform}」登录态已过期，请到设置页重新登录。`
-                    : `「${f.platform}」搜索失败。`}
+                    : `「${f.platform}」搜索失败${f.message ? `：${f.message}` : ''}。`}
                 <Typography.Link
                   href={f.url}
                   target="_blank"
@@ -229,14 +230,14 @@ export default function App() {
   )
 
   const settingsPage = (
-    <>
-      <Card title="平台登录" style={{ marginBottom: 16 }}>
-        <PlatformLogin />
-      </Card>
-      <Card title="LLM 配置">
-        <LlmConfigForm />
-      </Card>
-    </>
+    <Collapse
+      defaultActiveKey={[]}
+      items={[
+        { key: 'platform-login', label: '平台登录', children: <PlatformLogin /> },
+        { key: 'llm', label: 'LLM 配置', children: <LlmConfigForm /> },
+        { key: 'proxy', label: '网络代理', children: <ProxySettings /> },
+      ]}
+    />
   )
 
   return (

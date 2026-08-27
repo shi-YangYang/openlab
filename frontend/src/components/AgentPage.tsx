@@ -828,7 +828,7 @@ export default function AgentPage() {
                   ? '连接不可用，等待恢复…'
                   : '例如：搜索注意力机制相关论文，下载并分析前 2 篇'
               }
-              autoSize={{ minRows: 1, maxRows: 4 }}
+              autoSize={{ minRows: 4, maxRows: 10 }}
               disabled={offline || running || !!pendingApproval}
             />
             {running && !offline ? (

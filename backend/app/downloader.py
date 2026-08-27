@@ -1,5 +1,6 @@
 """PDF download and background job execution."""
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -7,6 +8,7 @@ import httpx
 
 from . import database
 from .config import settings
+from .llm_config import get_http_proxy
 from .platforms import LoginExpiredError, LoginRequiredError
 
 
@@ -21,6 +23,8 @@ def _failure_reason(exc: Exception) -> str:
         return "需付费/机构订阅"
     if "未找到" in msg:
         return "无下载链接"
+    if "落地页" in msg or "不是 PDF" in msg or "直链" in msg:
+        return "无直接 PDF"
     if "不提供" in msg or "原文链接" in msg:
         return "无直接 PDF"
     if isinstance(exc, httpx.TimeoutException):
@@ -28,6 +32,17 @@ def _failure_reason(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPError):
         return "下载失败"
     return "下载失败"
+
+
+def _is_arxiv_id(value: str) -> bool:
+    """Return True when ``value`` looks like a genuine arXiv identifier.
+
+    arXiv ids are ``NNNN.NNNN(V)`` (post-2007) or ``archive/NNNNNNN`` (old);
+    a bare 40-char hex string is a Semantic Scholar paperId, not an arXiv id.
+    """
+    if re.fullmatch(r"\d{4}\.\d{4,5}(v\d+)?", value):
+        return True
+    return "/" in value and not re.fullmatch(r"[0-9a-f]{40}", value)
 
 
 def is_downloaded(arxiv_id: str) -> bool:
@@ -53,6 +68,13 @@ async def download_pdf(
     path = settings.papers_dir / f"{arxiv_id}.pdf"
     async with client.stream("GET", pdf_url) as resp:
         resp.raise_for_status()
+        content_type = (resp.headers.get("content-type") or "").lower()
+        if "pdf" not in content_type:
+            # The URL served an HTML landing page / error page instead of a PDF
+            # (e.g. Semantic Scholar openAccessPdf links pointing at publisher
+            # pages). Writing it to ``{arxiv_id}.pdf`` would produce a broken
+            # paper file, so fail early with a clear reason instead.
+            raise RuntimeError("该链接不是 PDF 文件（可能为论文落地页），请通过「查看原文」获取全文")
         total = int(resp.headers.get("content-length") or 0)
         written = 0
         with path.open("wb") as f:
@@ -73,7 +95,9 @@ async def run_download_job(papers: List[Dict[str, Any]]) -> None:
     ``downloaded``). Failures are recorded with status ``failed``. Per-paper
     progress is written to ``papers.progress`` (FR-15).
     """
-    client = httpx.AsyncClient(timeout=120.0, follow_redirects=True)
+    client = httpx.AsyncClient(
+        timeout=120.0, follow_redirects=True, proxy=get_http_proxy() or None
+    )
     try:
         for paper in papers:
             arxiv_id = paper["arxiv_id"]
@@ -131,7 +155,15 @@ async def _download_one(
         # full text lives on third-party sites (Wanfang, Baidu Wenku, ...).
         raise RuntimeError("百度学术不提供直接 PDF，请通过原文链接跳转下载")
 
-    pdf_url = paper.get("pdf_url") or f"https://arxiv.org/pdf/{arxiv_id}"
+    pdf_url = paper.get("pdf_url") or ""
+    if not pdf_url:
+        # The arXiv fallback ``arxiv.org/pdf/{arxiv_id}`` only makes sense for
+        # genuine arXiv ids. Semantic Scholar rows without an ArXiv mapping use
+        # their 40-hex S2 paperId as ``arxiv_id`` — hitting arxiv.org with that
+        # would just hang/fail, so fail fast with a clear reason instead.
+        if paper.get("source") == "semantic_scholar" and not _is_arxiv_id(arxiv_id):
+            raise RuntimeError("该论文无可用 PDF 直链，请通过「查看原文」跳转获取全文")
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}"
     return await _download_with_retry(
         arxiv_id, pdf_url, client, on_progress=on_progress
     )

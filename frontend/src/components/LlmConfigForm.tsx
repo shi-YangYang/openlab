@@ -432,7 +432,10 @@ export default function LlmConfigForm() {
                 ) : (
                   <Space direction="vertical" size={8} style={{ width: '100%' }}>
                     {currentGroup.models.map((m, i) => (
-                      <Space key={i} size={8} style={{ width: '100%' }} align="start">
+                      <div
+                        key={i}
+                        style={{ display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%' }}
+                      >
                         <Input
                           value={m.id}
                           placeholder="模型 id"
@@ -448,22 +451,25 @@ export default function LlmConfigForm() {
                             updateModel(i, { context_length: v == null ? null : Number(v) })
                           }
                         />
-                        <Select
-                          mode="tags"
-                          value={m.reasoning_efforts ?? []}
-                          placeholder="输入强度值，回车添加多个"
-                          style={{ width: 220 }}
-                          onChange={(v) =>
-                            updateModel(i, { reasoning_efforts: Array.isArray(v) ? v : [] })
-                          }
-                        />
+                        <div style={{ flex: 1, minWidth: 300 }}>
+                          <Select
+                            mode="tags"
+                            value={m.reasoning_efforts ?? []}
+                            placeholder="输入强度值，回车添加多个"
+                            style={{ width: '100%' }}
+                            onChange={(v) =>
+                              updateModel(i, { reasoning_efforts: Array.isArray(v) ? v : [] })
+                            }
+                          />
+                        </div>
                         <Button
                           type="text"
                           danger
                           icon={<DeleteOutlined />}
+                          style={{ flexShrink: 0 }}
                           onClick={() => removeModel(i)}
                         />
-                      </Space>
+                      </div>
                     ))}
                   </Space>
                 )}

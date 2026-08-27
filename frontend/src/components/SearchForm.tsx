@@ -1,4 +1,4 @@
-import { Button, Checkbox, DatePicker, Form, Input, InputNumber, Radio, Space } from 'antd'
+import { Button, Checkbox, DatePicker, Form, Input, InputNumber, Radio, Space, Tooltip } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import type { Dayjs } from 'dayjs'
 import { SEARCH_PLATFORMS, type SearchPlatform } from '../types'
@@ -41,22 +41,26 @@ export default function SearchForm({ loading, onSubmit }: Props) {
     >
       <Form.Item name="mode" label="搜索方式">
         <Radio.Group>
-          <Radio.Button value="keyword">关键词 / 检索式</Radio.Button>
-          <Radio.Button value="topic">主题描述（LLM 拆解）</Radio.Button>
+          <Tooltip title="将输入内容原样提交给所选平台进行精确检索">
+            <Radio.Button value="keyword">直接搜索</Radio.Button>
+          </Tooltip>
+          <Tooltip title="先由大模型把研究主题改写成更精准的检索式再搜索，结果下方会显示生成的检索式">
+            <Radio.Button value="topic">AI 智能搜索</Radio.Button>
+          </Tooltip>
         </Radio.Group>
       </Form.Item>
 
       <Form.Item
         name="query"
-        label={mode === 'topic' ? '主题描述' : '关键词 / 检索式'}
+        label={mode === 'topic' ? '研究主题描述' : '搜索关键词'}
         rules={[{ required: true, message: '请输入内容' }]}
       >
         <Input.TextArea
           rows={2}
           placeholder={
             mode === 'topic'
-              ? '例如：基于 Transformer 的大语言模型的推理能力'
-              : '例如：attention is all you need'
+              ? '用一两句话描述你的研究方向或问题，AI 会自动将其改写为更精准的检索式'
+              : '输入标题、关键词或短语，例如 attention mechanism survey'
           }
         />
       </Form.Item>

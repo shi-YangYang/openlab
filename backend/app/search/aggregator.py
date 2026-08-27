@@ -7,6 +7,8 @@ external search-page URL) while the others contribute ``papers``.
 import asyncio
 from typing import Any, Dict, List, Optional
 
+import httpx
+
 from ..platforms import LoginExpiredError, LoginRequiredError
 from .arxiv import ArxivSearchProvider
 from .baidu_xueshu import BaiduXueshuProvider
@@ -22,6 +24,26 @@ _PROVIDER_CLASSES: Dict[str, type] = {
     "baidu_xueshu": BaiduXueshuProvider,
     "cnki": CnkiProvider,
 }
+
+
+def _describe_failure(exc: BaseException) -> Optional[str]:
+    """Return a short user-facing reason for a provider failure.
+
+    Login-related failures keep using the need_login/expired flags and carry no
+    message; HTTP 429 gets a dedicated wording; everything else falls back to
+    the first line of ``str(exc)`` truncated to 120 characters.
+    """
+    if isinstance(exc, (LoginRequiredError, LoginExpiredError)):
+        return None
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code if exc.response is not None else None
+        if status == 429:
+            return "官方接口限流(429)，已自动重试仍未恢复"
+    text = str(exc).strip()
+    if not text:
+        text = exc.__class__.__name__
+    text = text.splitlines()[0]
+    return text[:120]
 
 
 def build_providers(
@@ -53,7 +75,8 @@ async def search(
     """Search the requested platforms concurrently.
 
     Returns ``{"papers": [...], "fallbacks": [{"platform", "url",
-    "need_login", "expired"}, ...]}``.
+    "need_login", "expired", "message"}, ...]}`` where ``message`` is an
+    optional failure reason (omitted when there is none).
     """
     providers = build_providers(platforms, arxiv_client=arxiv_client, category=category)
     results = await asyncio.gather(
@@ -65,14 +88,16 @@ async def search(
     fallbacks: List[Dict[str, Any]] = []
     for provider, result in zip(providers, results):
         if isinstance(result, BaseException):
-            fallbacks.append(
-                {
-                    "platform": provider.name,
-                    "url": provider.fallback_url(query),
-                    "need_login": isinstance(result, LoginRequiredError),
-                    "expired": isinstance(result, LoginExpiredError),
-                }
-            )
+            fallback = {
+                "platform": provider.name,
+                "url": provider.fallback_url(query),
+                "need_login": isinstance(result, LoginRequiredError),
+                "expired": isinstance(result, LoginExpiredError),
+            }
+            message = _describe_failure(result)
+            if message is not None:
+                fallback["message"] = message
+            fallbacks.append(fallback)
         else:
             papers.extend(result or [])
 
