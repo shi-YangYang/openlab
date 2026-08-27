@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Progress, Space, Table, Tag, Typography } from 'antd'
+import { Button, Popconfirm, Progress, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { DeleteOutlined, FilePdfOutlined, FileSearchOutlined, LinkOutlined } from '@ant-design/icons'
 import type { AnalysisStatusInfo, Paper } from '../types'
@@ -98,13 +98,16 @@ export function paperActionColumn(
       return (
         <Space size={4}>
           {!isBaidu && (
-            <Button
-              size="small"
-              icon={<FileSearchOutlined />}
-              onClick={() => onAnalyze(r.arxiv_id)}
-            >
-              分析
-            </Button>
+            <Tooltip title={downloaded ? undefined : '请先下载该论文'}>
+              <Button
+                size="small"
+                icon={<FileSearchOutlined />}
+                disabled={!downloaded}
+                onClick={() => onAnalyze(r.arxiv_id)}
+              >
+                分析
+              </Button>
+            </Tooltip>
           )}
           {!isArxiv && r.url && (
             <Button
@@ -234,7 +237,7 @@ export default function PaperTable({
           <Typography.Paragraph style={{ margin: 0 }}>{r.abstract}</Typography.Paragraph>
         ),
       }}
-      pagination={{ pageSize: 10, showSizeChanger: false }}
+      pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100] }}
       size="middle"
     />
   )

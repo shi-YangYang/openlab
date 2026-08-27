@@ -243,3 +243,16 @@ def test_confirm_deduplicates_same_filename(client, monkeypatch):
     second = _upload_and_confirm(client, monkeypatch, "Attention Paper.pdf")
     assert first["arxiv_id"] == "upload-attention-paper"
     assert second["arxiv_id"] == "upload-attention-paper-1"
+
+
+def test_confirm_reports_duplicate_title(client, monkeypatch):
+    first = _upload_and_confirm(client, monkeypatch, "Paper A.pdf", title="Survey on X")
+    assert first["duplicate_of"] is None
+
+    # Same title from a different file: flagged as duplicate of the first.
+    second = _upload_and_confirm(client, monkeypatch, "Paper B.pdf", title="Survey on X")
+    assert second["duplicate_of"] == first["arxiv_id"]
+
+    # A different title is not flagged.
+    third = _upload_and_confirm(client, monkeypatch, "Paper C.pdf", title="Other Topic")
+    assert third["duplicate_of"] is None

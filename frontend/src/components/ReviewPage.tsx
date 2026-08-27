@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Breadcrumb, Button, Card, Divider, Progress, Select, Space, Spin, Tag, Typography } from 'antd'
 import { App as AntApp } from 'antd'
-import { DownloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { createReview, exportReviewMarkdown, getReview } from '../api'
 import type { AnalysisLanguage, ReviewRecord } from '../types'
@@ -46,8 +46,7 @@ export default function ReviewPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (arxivIds.length < 2) return
+  const launchReview = useCallback(() => {
     setRecord(null)
     setSubmitting(true)
     createReview(arxivIds, language)
@@ -57,11 +56,15 @@ export default function ReviewPage() {
       })
       .catch((e) => message.error(e instanceof Error ? e.message : '综述生成失败'))
       .finally(() => setSubmitting(false))
+  }, [arxivIds, language, poll, message])
+
+  useEffect(() => {
+    if (arxivIds.length < 2) return
+    launchReview()
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arxivIds, language, poll])
+  }, [arxivIds, launchReview])
 
   const handleExport = async () => {
     if (!record?.id) return
@@ -136,6 +139,16 @@ export default function ReviewPage() {
                 showIcon
                 message="综述生成失败"
                 description={record?.error || '请确认已配置 LLM 且所选论文可分析。'}
+                action={
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={submitting}
+                    onClick={() => void launchReview()}
+                  >
+                    重试综述
+                  </Button>
+                }
               />
             ) : (
               <>

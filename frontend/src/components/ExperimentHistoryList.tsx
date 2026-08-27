@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   App as AntApp,
   Button,
   Card,
   Divider,
+  Input,
   Modal,
   Popconfirm,
   Space,
@@ -13,7 +14,7 @@ import {
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
-import { DeleteOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons'
+import { DeleteOutlined, DownloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   deleteExperiment,
   exportExperimentMarkdown,
@@ -48,6 +49,7 @@ export default function ExperimentHistoryList() {
   const [detail, setDetail] = useState<ExperimentRecord | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [exportingId, setExportingId] = useState<number | null>(null)
+  const [keyword, setKeyword] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -97,6 +99,16 @@ export default function ExperimentHistoryList() {
       message.error(e instanceof Error ? e.message : '删除失败')
     }
   }
+
+  const filteredItems = useMemo(() => {
+    const kw = keyword.trim().toLowerCase()
+    if (!kw) return items
+    return items.filter((item) => {
+      const source = (item.source_label || '').toLowerCase()
+      const lang = LANGUAGE_LABEL[item.language] || item.language || ''
+      return source.includes(kw) || String(lang).toLowerCase().includes(kw)
+    })
+  }, [items, keyword])
 
   const columns: TableProps<ExperimentHistoryItem>['columns'] = [
     {
@@ -166,10 +178,22 @@ export default function ExperimentHistoryList() {
   const content = detail?.content
 
   return (
-    <Card title="实验方案历史">
+    <Card
+      title="实验方案历史"
+      extra={
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="按来源/语言过滤"
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          style={{ width: 200 }}
+        />
+      }
+    >
       <Table
         rowKey="id"
-        dataSource={items}
+        dataSource={filteredItems}
         columns={columns}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false }}

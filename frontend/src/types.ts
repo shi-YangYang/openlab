@@ -17,6 +17,7 @@ export interface PaperRecord extends Paper {
   progress?: number
   error?: string | null
   created_at?: string
+  duplicate_of?: string | null
 }
 
 export type SearchPlatform = 'arxiv' | 'semantic_scholar' | 'baidu_xueshu' | 'cnki'

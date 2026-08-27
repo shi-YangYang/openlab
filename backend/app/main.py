@@ -94,6 +94,7 @@ from .schemas import (
     TopicSearchRequest,
     TopicSearchResponse,
     UploadConfirmRequest,
+    UploadConfirmResponse,
     UploadResponse,
 )
 
@@ -409,7 +410,7 @@ async def upload_paper_pdf(file: UploadFile = File(...)) -> dict:
     return {"pdf_token": token, "paper": metadata}
 
 
-@app.post("/api/papers/upload/confirm", response_model=PaperRecord)
+@app.post("/api/papers/upload/confirm", response_model=UploadConfirmResponse)
 async def confirm_paper_pdf(req: UploadConfirmRequest) -> dict:
     token = req.pdf_token.strip()
     if not _valid_upload_token(token):
@@ -418,6 +419,15 @@ async def confirm_paper_pdf(req: UploadConfirmRequest) -> dict:
     tmp_path = settings.uploads_dir / f"{token}.pdf"
     if not tmp_path.is_file():
         raise HTTPException(status_code=404, detail="上传已失效或不存在，请重新上传")
+
+    duplicate_of: Optional[str] = None
+    new_title = req.paper.title.strip()
+    for existing in database.list_papers():
+        if existing.get("source") != "upload":
+            continue
+        if (existing.get("title") or "").strip() == new_title:
+            duplicate_of = existing.get("arxiv_id")
+            break
 
     arxiv_id = _ensure_unique_arxiv_id(_build_upload_arxiv_id(_read_upload_filename(token)))
     dest = settings.papers_dir / f"{arxiv_id}.pdf"
@@ -439,7 +449,9 @@ async def confirm_paper_pdf(req: UploadConfirmRequest) -> dict:
         }
     )
     database.set_status(arxiv_id, "downloaded", str(dest))
-    return database.get_paper(arxiv_id)
+    result = database.get_paper(arxiv_id)
+    result["duplicate_of"] = duplicate_of
+    return result
 
 
 @app.get("/api/llm/presets", response_model=List[LLMPreset])

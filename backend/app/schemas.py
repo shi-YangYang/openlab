@@ -94,6 +94,10 @@ class UploadConfirmRequest(BaseModel):
     paper: PaperMetadata
 
 
+class UploadConfirmResponse(PaperRecord):
+    duplicate_of: Optional[str] = None
+
+
 class SearchHistoryItem(BaseModel):
     id: int
     query: str

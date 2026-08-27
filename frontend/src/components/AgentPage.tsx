@@ -8,6 +8,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Spin,
@@ -50,6 +51,7 @@ interface Turn {
   role: 'user' | 'assistant'
   text: string
   toolCalls: AgentToolCall[]
+  time?: string
 }
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
@@ -80,6 +82,22 @@ function formatValue(value: unknown): string {
 function formatTime(value?: string): string {
   if (!value) return ''
   return String(value).replace('T', ' ').replace('Z', '').slice(0, 16)
+}
+
+function hhmmNow(): string {
+  return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
+function extractCommand(args: unknown): string | null {
+  if (!args || typeof args !== 'object') return null
+  const obj = args as Record<string, unknown>
+  if (typeof obj.command === 'string' && obj.command.trim()) return obj.command
+  const nested = obj.args
+  if (nested && typeof nested === 'object') {
+    const command = (nested as Record<string, unknown>).command
+    if (typeof command === 'string' && command.trim()) return command
+  }
+  return null
 }
 
 function runningStatusLabel(status?: string): string {
@@ -163,12 +181,17 @@ export default function AgentPage() {
         const detail = await getAgentSession(id)
         if (currentIdRef.current !== id) return
         setUsage(detail.usage ?? null)
-        setMessages(
-          detail.messages.map((m) => ({
-            role: m.role === 'user' ? 'user' : 'assistant',
-            text: m.content,
-            toolCalls: [],
-          })),
+        setMessages((prev) =>
+          detail.messages.map((m, i) => {
+            const role: Turn['role'] = m.role === 'user' ? 'user' : 'assistant'
+            const old = prev[i]
+            return {
+              role,
+              text: m.content,
+              toolCalls: [],
+              time: old && old.role === role ? old.time : undefined,
+            }
+          }),
         )
         if (detail.running) {
           setRunning(true)
@@ -197,9 +220,9 @@ export default function AgentPage() {
         const next = [...prev]
         const last = next[next.length - 1]
         if (last && last.role === 'assistant') {
-          next[next.length - 1] = { ...last, text: reply ?? '' }
+          next[next.length - 1] = { ...last, text: reply ?? '', time: hhmmNow() }
         } else {
-          next.push({ role: 'assistant', text: reply ?? '', toolCalls: [] })
+          next.push({ role: 'assistant', text: reply ?? '', toolCalls: [], time: hhmmNow() })
         }
         return next
       })
@@ -245,7 +268,7 @@ export default function AgentPage() {
             if (last && last.role === 'assistant') {
               next[next.length - 1] = { ...last, text: last.text + event.delta }
             } else {
-              next.push({ role: 'assistant', text: event.delta, toolCalls: [] })
+              next.push({ role: 'assistant', text: event.delta, toolCalls: [], time: hhmmNow() })
             }
             return next
           })
@@ -260,7 +283,12 @@ export default function AgentPage() {
                 toolCalls: [...last.toolCalls, event.entry],
               }
             } else {
-              next.push({ role: 'assistant', text: '', toolCalls: [event.entry] })
+              next.push({
+                role: 'assistant',
+                text: '',
+                toolCalls: [event.entry],
+                time: hhmmNow(),
+              })
             }
             return next
           })
@@ -273,6 +301,7 @@ export default function AgentPage() {
           applyDone(event.reply, event.usage)
           break
         case 'stopped':
+          message.info('任务已中断')
           message.info('本次执行已中断，已保留部分内容')
           clearRunState()
           {
@@ -325,28 +354,40 @@ export default function AgentPage() {
     setReasoningEffort(undefined)
   }
 
-  useEffect(() => {
-    let cancelled = false
-    getLlmConfig()
-      .then((cfg) => {
-        if (cancelled) return
-        const group = cfg.groups.find((g) => g.id === cfg.active_group) ?? cfg.groups[0]
-        if (group) {
-          setModels(group.models)
-          const defaultModelId = group.default_model || group.models[0]?.id || ''
-          const defaults = {
-            model: defaultModelId,
-          }
-          setGroupDefaults(defaults)
-          setModel(defaults.model)
-          setReasoningEffort(undefined)
+  const reloadConfig = useCallback(async () => {
+    try {
+      const cfg = await getLlmConfig()
+      const group = cfg.groups.find((g) => g.id === cfg.active_group) ?? cfg.groups[0]
+      if (group) {
+        setModels(group.models)
+        const defaultModelId = group.default_model || group.models[0]?.id || ''
+        const defaults = {
+          model: defaultModelId,
         }
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
+        setGroupDefaults(defaults)
+        setModel(defaults.model)
+        setReasoningEffort(undefined)
+      }
+    } catch {
+      // ignore transient errors
     }
   }, [])
+
+  useEffect(() => {
+    void reloadConfig()
+  }, [reloadConfig])
+
+  useEffect(() => {
+    const handler = () => {
+      void reloadConfig()
+    }
+    window.addEventListener('storage', handler)
+    window.addEventListener('openlab:llm-updated', handler)
+    return () => {
+      window.removeEventListener('storage', handler)
+      window.removeEventListener('openlab:llm-updated', handler)
+    }
+  }, [reloadConfig])
 
   useEffect(() => {
     void (async () => {
@@ -393,7 +434,8 @@ export default function AgentPage() {
     setInput('')
     setStatusLabel('')
     setLoading(true)
-    setMessages((prev) => [...prev, { role: 'user', text, toolCalls: [] }])
+    const hhmm = hhmmNow()
+    setMessages((prev) => [...prev, { role: 'user', text, toolCalls: [], time: hhmm }])
     const ok = channel.sendChat(text, { model, reasoningEffort })
     if (!ok) {
       message.error('连接未就绪，请稍后再试')
@@ -490,6 +532,7 @@ export default function AgentPage() {
   const selectedModel = models.find((m) => m.id === model)
   const contextLength = selectedModel?.context_length || null
   const lastInput = usage?.last_input_tokens ?? 0
+  const approvalCommand = pendingApproval ? extractCommand(pendingApproval.args) : null
   const reasoningEffortOptions = [
     { value: '', label: '默认（不设置）' },
     ...(selectedModel?.reasoning_efforts ?? []).map((e) => ({ value: e, label: e })),
@@ -581,7 +624,24 @@ export default function AgentPage() {
                       >
                         {item.title || '新会话'}
                       </Typography.Text>
+                      {item.status === 'interrupted' && (
+                        <Tag
+                          color="orange"
+                          style={{ fontSize: 12, lineHeight: '18px', marginInlineEnd: 0 }}
+                        >
+                          已中断
+                        </Tag>
+                      )}
                       <Space size={0} onClick={(e) => e.stopPropagation()}>
+                        <Tooltip title="导出 Markdown">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<ExportOutlined />}
+                            disabled={offline}
+                            onClick={() => void handleExport(item.id)}
+                          />
+                        </Tooltip>
                         <Button
                           type="text"
                           size="small"
@@ -625,63 +685,11 @@ export default function AgentPage() {
             }
           />
         )}
-        <div
-          style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid #f0f0f0',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 16,
-            flexWrap: 'wrap',
-          }}
-        >
-          <Space size={8}>
-            <Typography.Text type="secondary">模型</Typography.Text>
-            <Select
-              size="small"
-              style={{ minWidth: 200 }}
-              value={model}
-              onChange={handleModelChange}
-              showSearch
-              optionFilterProp="label"
-              placeholder="选择模型"
-              options={models.map((m) => ({ value: m.id, label: m.id }))}
-            />
-          </Space>
-          <Space size={8}>
-            <Typography.Text type="secondary">思考强度</Typography.Text>
-            <Select
-              size="small"
-              style={{ minWidth: 130 }}
-              placeholder="默认"
-              value={reasoningEffort ?? ''}
-              onChange={(v) => setReasoningEffort(v || undefined)}
-              options={reasoningEffortOptions}
-            />
-          </Space>
-          {compactedVisible && (
+        {compactedVisible && (
+          <div style={{ padding: '8px 16px 0' }}>
             <Tag color="geekblue">已压缩早期历史</Tag>
-          )}
-          <Space size={8} style={{ marginLeft: 'auto' }}>
-            {usage && (
-              <Typography.Text type="secondary">
-                {contextLength
-                  ? `上下文 ${lastInput.toLocaleString()} / ${contextLength.toLocaleString()} tokens（${Math.round(
-                      (lastInput / contextLength) * 100,
-                    )}%）`
-                  : `上下文 ${lastInput.toLocaleString()} tokens`}
-              </Typography.Text>
-            )}
-            <Button
-              size="small"
-              icon={<ExportOutlined />}
-              disabled={!currentId || offline}
-              onClick={() => currentId && void handleExport(currentId)}
-            >
-              导出 Markdown
-            </Button>
-          </Space>
-        </div>
+          </div>
+        )}
         <div
           style={{
             height: 'calc(100vh - 240px)',
@@ -722,6 +730,13 @@ export default function AgentPage() {
                       }}
                     >
                       {turn.text}
+                      {turn.time && (
+                        <div style={{ textAlign: 'right', marginTop: 2 }}>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {turn.time}
+                          </Typography.Text>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -746,6 +761,11 @@ export default function AgentPage() {
                         <Collapse
                           ghost
                           size="small"
+                          defaultActiveKey={turn.toolCalls
+                            .map((c, j) =>
+                              ['error', 'rejected'].includes(c.status) ? `${i}-${j}` : null,
+                            )
+                            .filter(Boolean) as string[]}
                           items={turn.toolCalls.map((call, j) => {
                             const meta = STATUS_META[call.status] ?? {
                               color: 'default',
@@ -774,6 +794,14 @@ export default function AgentPage() {
                             }
                           })}
                         />
+                      )}
+                      {turn.time && (
+                        <Typography.Text
+                          type="secondary"
+                          style={{ fontSize: 12, display: 'inline-block' }}
+                        >
+                          {turn.time}
+                        </Typography.Text>
                       )}
                     </div>
                     <Tooltip title="复制原文">
@@ -813,24 +841,80 @@ export default function AgentPage() {
         )}
 
         <div style={{ padding: 16 }}>
-          <Space.Compact style={{ width: '100%' }}>
-            <Input.TextArea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onPressEnter={(e) => {
-                if (!e.shiftKey) {
-                  e.preventDefault()
-                  handleSend()
-                }
-              }}
-              placeholder={
-                connectionState === 'reconnecting' || connectionState === 'closed'
-                  ? '连接不可用，等待恢复…'
-                  : '例如：搜索注意力机制相关论文，下载并分析前 2 篇'
+          <Input.TextArea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onPressEnter={(e) => {
+              if (!e.shiftKey) {
+                e.preventDefault()
+                handleSend()
               }
-              autoSize={{ minRows: 4, maxRows: 10 }}
-              disabled={offline || running || !!pendingApproval}
-            />
+            }}
+            placeholder={
+              connectionState === 'reconnecting' || connectionState === 'closed'
+                ? '连接不可用，等待恢复…'
+                : '输入目标后按 Enter 发送（Shift+Enter 换行），中断后可继续发送新指令'
+            }
+            autoSize={{ minRows: 4, maxRows: 10 }}
+            disabled={offline || running || !!pendingApproval}
+          />
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              marginTop: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Space size={4} wrap>
+              <Select
+                size="small"
+                style={{ minWidth: 180 }}
+                value={model}
+                onChange={handleModelChange}
+                showSearch
+                optionFilterProp="label"
+                placeholder="选择模型"
+                options={models.map((m) => ({ value: m.id, label: m.id }))}
+              />
+              <Select
+                size="small"
+                style={{ minWidth: 110 }}
+                placeholder="思考强度"
+                value={reasoningEffort ?? ''}
+                onChange={(v) => setReasoningEffort(v || undefined)}
+                options={reasoningEffortOptions}
+              />
+            </Space>
+            <Tooltip
+              title={
+                usage
+                  ? contextLength
+                    ? `上下文 ${lastInput.toLocaleString()} / ${contextLength.toLocaleString()} tokens（${Math.round(
+                        (lastInput / contextLength) * 100,
+                      )}%）`
+                    : `已用 ${lastInput.toLocaleString()} tokens`
+                  : '暂无用量统计'
+              }
+            >
+              {usage ? (
+                <Progress
+                  type="circle"
+                  size={22}
+                  percent={
+                    contextLength ? Math.min(100, Math.round((lastInput / contextLength) * 100)) : 100
+                  }
+                  showInfo={false}
+                  strokeColor={
+                    contextLength && lastInput / contextLength > 0.8 ? '#faad14' : '#1677ff'
+                  }
+                />
+              ) : (
+                <Progress type="circle" size={22} percent={0} showInfo={false} />
+              )}
+            </Tooltip>
+            <div style={{ flex: 1 }} />
             {running && !offline ? (
               <Button danger icon={<StopOutlined />} onClick={handleStop}>
                 停止
@@ -841,12 +925,12 @@ export default function AgentPage() {
                 icon={<SendOutlined />}
                 onClick={handleSend}
                 loading={loading}
-                disabled={offline || running || !!pendingApproval}
+                disabled={offline || !!pendingApproval}
               >
                 发送
               </Button>
             )}
-          </Space.Compact>
+          </div>
         </div>
       </div>
 
@@ -869,16 +953,56 @@ export default function AgentPage() {
           <Typography.Text code>{pendingApproval?.tool}</Typography.Text>
           ，请确认以下参数：
         </Typography.Paragraph>
-        <pre
-          style={{
-            background: '#fafafa',
-            padding: 12,
-            borderRadius: 6,
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {pendingApproval ? formatValue(pendingApproval.args) : ''}
-        </pre>
+        {approvalCommand ? (
+          <>
+            <pre
+              style={{
+                background: '#1e1e1e',
+                color: '#fff',
+                padding: 12,
+                borderRadius: 6,
+                fontFamily: 'Consolas, Monaco, monospace',
+                fontSize: 14,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {approvalCommand}
+            </pre>
+            <Collapse
+              ghost
+              size="small"
+              items={[
+                {
+                  key: 'full-args',
+                  label: '完整参数',
+                  children: (
+                    <pre
+                      style={{
+                        background: '#fafafa',
+                        padding: 12,
+                        borderRadius: 6,
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {pendingApproval ? formatValue(pendingApproval.args) : ''}
+                    </pre>
+                  ),
+                },
+              ]}
+            />
+          </>
+        ) : (
+          <pre
+            style={{
+              background: '#fafafa',
+              padding: 12,
+              borderRadius: 6,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {pendingApproval ? formatValue(pendingApproval.args) : ''}
+          </pre>
+        )}
       </Modal>
     </div>
   )

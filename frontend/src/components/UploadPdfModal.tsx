@@ -59,8 +59,11 @@ export default function UploadPdfModal({ open, onClose, onSaved }: Props) {
     const values = await form.validateFields()
     setSaving(true)
     try {
-      await confirmUpload(pdfToken, values as PaperMetadata)
+      const res = await confirmUpload(pdfToken, values as PaperMetadata)
       message.success('已保存到论文库')
+      if (res.duplicate_of) {
+        message.warning('已存在相似的上传记录，可在论文库中删除不需要的版本')
+      }
       onSaved()
       onClose()
     } catch (e) {

@@ -303,6 +303,8 @@ export default function LlmConfigForm() {
     setSaving(true)
     try {
       await saveLlmConfig(config)
+      window.localStorage.setItem('openlab.llm.updated', String(Date.now()))
+      window.dispatchEvent(new Event('openlab:llm-updated'))
       message.success('LLM 配置已保存')
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存失败')

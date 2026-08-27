@@ -230,6 +230,16 @@ export default function PaperAnalysisPage() {
                   record.error ||
                   '可能原因：PDF 未下载或解析失败、LLM 未配置或返回格式错误。可调整语言后重新分析。'
                 }
+                action={
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={analyzing}
+                    onClick={() => void handleAnalyze()}
+                  >
+                    重试分析
+                  </Button>
+                }
               />
             )}
 
