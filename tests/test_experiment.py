@@ -124,10 +124,8 @@ def test_experiment_from_innovation(client, monkeypatch):
     assert plan["metrics"] == ["指标1"]
 
 
-def test_experiment_from_papers(client, monkeypatch):
-    monkeypatch.setattr(
-        experiment, "_chat", _fake_chat(json.dumps(_experiment_plans(1), ensure_ascii=False))
-    )
+def test_experiment_from_papers_rejected(client, monkeypatch):
+    """Business rule: plans are generated one-to-one from innovation points only."""
     _register_paper("1")
     _register_paper("2")
 
@@ -135,13 +133,8 @@ def test_experiment_from_papers(client, monkeypatch):
         "/api/experiments",
         json={"source_type": "papers", "arxiv_ids": ["1", "2"], "count": 1, "language": "zh"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["source_type"] == "papers"
-    record = client.get(f"/api/experiments/{data['id']}").json()
-    assert record["status"] == "done"
-    assert record["arxiv_ids"] == ["1", "2"]
-    assert len(record["content"]) == 1
+    assert resp.status_code == 400
+    assert "innovation" in resp.json()["detail"]
 
 
 def test_experiment_count_validation(client):

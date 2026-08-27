@@ -253,8 +253,7 @@ async def test_ws_pending_and_approve_endpoint(client, monkeypatch):
 
 def test_redact_secrets(monkeypatch):
     monkeypatch.setattr(
-        agent_module,
-        "get_effective_config",
+        "app.redact.get_effective_config",
         lambda: {"base_url": "https://x", "api_key": "sk-abc123", "model": "m"},
     )
     monkeypatch.setattr(

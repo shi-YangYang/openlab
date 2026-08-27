@@ -1,3 +1,5 @@
+import json
+
 from app import config, downloader
 from app.config import Settings, settings
 from tests.conftest import make_paper
@@ -582,3 +584,79 @@ def test_llm_models_endpoint_error_status(client, monkeypatch):
     )
     assert resp.status_code == 401
     assert "invalid api key" in resp.json()["detail"]
+
+
+def _seed_experiment():
+    from app import database
+
+    database.init_db()
+    content = json.dumps([
+        {"hypothesis": "h", "goal": "g", "datasets": ["d"], "baselines": ["b"], "metrics": ["m"]}
+    ])
+    rec = database.insert_experiment("papers", None, ["1706.03762"], content, "zh", status="done")
+    return rec["id"] if isinstance(rec, dict) else rec
+
+
+def test_experiment_run_create_validates_references(client):
+    missing_exp = client.post(
+        "/api/experiment-runs",
+        json={"experiment_id": 99999, "server_id": "s1"},
+    )
+    assert missing_exp.status_code == 404
+
+
+def test_experiment_run_crud_round_trip(client):
+    from app import config
+
+    # client fixture patches settings.data_dir into tmp_path; seed a server there.
+    servers_path = config.settings.data_dir / "servers.json"
+    original = (
+        json.loads(servers_path.read_text(encoding="utf-8"))
+        if servers_path.exists()
+        else []
+    )
+    servers_path.write_text(
+        json.dumps(
+            original
+            + [
+                {
+                    "id": "testrun-srv",
+                    "name": "t",
+                    "host": "h",
+                    "port": 22,
+                    "username": "u",
+                    "auth_type": "password",
+                    "password": "pw-12345678",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exp_id = _seed_experiment()
+    resp = client.post(
+        "/api/experiment-runs",
+        json={"experiment_id": exp_id, "server_id": "testrun-srv"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "pending"
+    assert set(body["steps"]) == {"sync_code", "setup_env", "launch_training", "monitor_output"}
+
+    run_id = body["id"]
+    got = client.get(f"/api/experiment-runs/{run_id}")
+    assert got.status_code == 200
+    assert "log_tail" in got.json()
+
+    listed = client.get("/api/experiment-runs")
+    assert any(r["id"] == run_id for r in listed.json())
+
+    deleted = client.delete(f"/api/experiment-runs/{run_id}")
+    assert deleted.status_code == 200
+    gone = client.get(f"/api/experiment-runs/{run_id}")
+    assert gone.status_code == 404
+
+
+def test_experiment_run_delete_missing_404(client):
+    resp = client.delete("/api/experiment-runs/999999")
+    assert resp.status_code == 404

@@ -31,6 +31,7 @@ from langchain_openai import ChatOpenAI
 
 from .. import database
 from ..llm_config import get_effective_config, get_model_context_length
+from ..redact import redact_secrets as _redact_secrets
 from . import tools as agent_tools
 from .compaction import compact_messages, should_compact
 from .sessions import (
@@ -81,35 +82,6 @@ def _content_to_str(content: Any) -> str:
             for item in content
         )
     return str(content)
-
-
-def _redact_secrets(text: str) -> str:
-    """Scrub the LLM API key and any server passwords from a string (NFR-2).
-
-    Secrets shorter than ``_MIN_SECRET_LENGTH`` are ignored to avoid
-    over-redacting common single characters.
-    """
-    _min_len = 4
-    secrets: List[str] = []
-    try:
-        api_key = get_effective_config().get("api_key") or ""
-    except Exception:
-        api_key = ""
-    if api_key:
-        secrets.append(api_key)
-    try:
-        from .. import servers
-
-        for server in servers.list_servers():
-            password = server.get("password")
-            if password:
-                secrets.append(str(password))
-    except Exception:
-        pass
-    for secret in secrets:
-        if secret and len(secret) >= _min_len and secret in text:
-            text = text.replace(secret, "***")
-    return text
 
 
 def _stringify(value: Any) -> str:

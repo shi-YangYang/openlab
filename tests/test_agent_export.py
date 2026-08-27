@@ -46,8 +46,7 @@ async def test_export_contains_messages_and_redacts_secrets(client, monkeypatch)
     ])
     monkeypatch.setattr(agent_module, "_build_bound_llm", lambda *a, **k: llm)
     monkeypatch.setattr(
-        agent_module,
-        "get_effective_config",
+        "app.redact.get_effective_config",
         lambda: {"base_url": "https://x", "api_key": "sk-export-key", "model": "m"},
     )
     monkeypatch.setattr(

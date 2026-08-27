@@ -132,6 +132,23 @@ export interface LlmGroupsConfig {
   proxy?: string | null
 }
 
+export interface ExperimentRun {
+  id: number
+  experiment_id: number
+  server_id: string
+  mode: string
+  status: string
+  current_step: string
+  pid?: number | null
+  error?: string | null
+  remote_workdir?: string
+  launch_command?: string
+  created_at?: string
+  updated_at?: string
+  steps?: Record<string, string>
+  log_tail?: string
+}
+
 export interface LlmTestResult {
   ok: boolean
   message: string

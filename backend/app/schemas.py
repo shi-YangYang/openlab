@@ -447,3 +447,15 @@ class AgentSessionMessage(BaseModel):
 class AgentSessionDetail(AgentSessionItem):
     messages: List[AgentSessionMessage] = Field(default_factory=list)
     usage: Optional[Dict[str, int]] = None
+
+
+class ExperimentRunCreate(BaseModel):
+    experiment_id: int
+    server_id: str
+    mode: str = "manual"
+    remote_workdir: str = ""
+    repo_url: str = ""
+
+
+class ExperimentRunStartRequest(BaseModel):
+    steps: Dict[str, str]

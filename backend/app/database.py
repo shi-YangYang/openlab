@@ -93,6 +93,23 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     last_input_tokens INTEGER DEFAULT 0,
     last_output_tokens INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS experiment_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    experiment_id INTEGER NOT NULL,
+    server_id TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'manual',
+    status TEXT NOT NULL DEFAULT 'pending',
+    current_step TEXT DEFAULT '',
+    log_path TEXT,
+    remote_workdir TEXT,
+    pid INTEGER,
+    launch_command TEXT,
+    steps_json TEXT,
+    error TEXT,
+    created_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    updated_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
+);
 """
 
 
@@ -917,5 +934,120 @@ def clear_agent_sessions() -> None:
     try:
         conn.execute("DELETE FROM agent_sessions")
         conn.commit()
+    finally:
+        conn.close()
+
+
+_RUN_UPDATABLE_FIELDS = (
+    "status",
+    "current_step",
+    "pid",
+    "error",
+    "remote_workdir",
+    "launch_command",
+    "steps_json",
+)
+
+
+def _run_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    data = dict(row)
+    data["mode"] = data.get("mode") or "manual"
+    data["status"] = data.get("status") or "pending"
+    data["current_step"] = data.get("current_step") or ""
+    data["remote_workdir"] = data.get("remote_workdir") or ""
+    data["launch_command"] = data.get("launch_command") or ""
+    data["steps_json"] = data.get("steps_json") or ""
+    data["error"] = data.get("error") or ""
+    return data
+
+
+def create_experiment_run(
+    experiment_id: int,
+    server_id: str,
+    mode: str = "manual",
+    remote_workdir: str = "",
+    launch_command: str = "",
+    steps_json: str = "",
+    log_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Insert an experiment run row and return it."""
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO experiment_runs
+                (experiment_id, server_id, mode, status, current_step,
+                 log_path, remote_workdir, pid, launch_command, steps_json)
+            VALUES (?, ?, ?, 'pending', '', ?, ?, NULL, ?, ?)
+            """,
+            (experiment_id, server_id, mode, log_path, remote_workdir,
+             launch_command, steps_json),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM experiment_runs WHERE id = ?", (cur.lastrowid,)
+        ).fetchone()
+        return _run_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def get_experiment_run(run_id: int) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM experiment_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        return _run_row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_experiment_runs() -> List[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM experiment_runs ORDER BY id DESC"
+        ).fetchall()
+        return [_run_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_experiment_run(run_id: int, **fields: Any) -> Optional[Dict[str, Any]]:
+    """Whitelisted update of a run row; ``updated_at`` is always refreshed."""
+    allowed = {k: v for k, v in fields.items() if k in _RUN_UPDATABLE_FIELDS}
+    if not allowed:
+        return get_experiment_run(run_id)
+    assignments = ", ".join(f"{key} = ?" for key in allowed)
+    values = list(allowed.values())
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            f"""
+            UPDATE experiment_runs
+            SET {assignments},
+                updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
+            WHERE id = ?
+            """,
+            [*values, run_id],
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return None
+        row = conn.execute(
+            "SELECT * FROM experiment_runs WHERE id = ?", (run_id,)
+        ).fetchone()
+        return _run_row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def delete_experiment_run(run_id: int) -> bool:
+    conn = _connect()
+    try:
+        cur = conn.execute("DELETE FROM experiment_runs WHERE id = ?", (run_id,))
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()

@@ -109,24 +109,15 @@ export default function App() {
     [navigate],
   )
 
-  const openExperiment = useCallback(
-    (ids: string[]) => {
-      navigate(`/papers/experiment?ids=${ids.join(',')}`)
-    },
-    [navigate],
-  )
-
   const searchWorkspace = usePaperWorkspace({
     onAnalyzeOne: openAnalyze,
     onOpenReview: openReview,
     onOpenInnovation: openInnovation,
-    onOpenExperiment: openExperiment,
   })
   const libraryWorkspace = usePaperWorkspace({
     onAnalyzeOne: openAnalyze,
     onOpenReview: openReview,
     onOpenInnovation: openInnovation,
-    onOpenExperiment: openExperiment,
   })
 
   useEffect(() => {

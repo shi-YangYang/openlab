@@ -53,6 +53,8 @@ from .schemas import (
     AgentSessionDetail,
     AgentSessionItem,
     AgentSessionUpdate,
+    ExperimentRunCreate,
+    ExperimentRunStartRequest,
     AnalysisRecord,
     AnalyzeBatchRequest,
     AnalyzeBatchResponse,
@@ -905,34 +907,28 @@ async def list_experiments() -> List[dict]:
 async def create_experiment(
     req: ExperimentRequest, background_tasks: BackgroundTasks
 ) -> dict:
-    if req.source_type not in ("innovation", "papers"):
+    # Business rule: experiment plans are generated one-to-one from innovation
+    # points (spec-007 flow). Direct paper-based generation is not offered.
+    if req.source_type != "innovation":
         raise HTTPException(
-            status_code=400, detail="source_type must be 'innovation' or 'papers'"
+            status_code=400,
+            detail="实验方案必须基于创新点生成（source_type 必须为 'innovation'）",
         )
     if not 1 <= req.count <= 3:
         raise HTTPException(status_code=400, detail="count must be between 1 and 3")
 
-    arxiv_ids = list(dict.fromkeys(req.arxiv_ids or []))
     innovation_id = req.innovation_id
-
-    if req.source_type == "innovation":
-        if innovation_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="innovation_id is required for source_type=innovation",
-            )
-        innovation = database.get_innovation(innovation_id)
-        if innovation is None:
-            raise HTTPException(
-                status_code=404, detail=f"Innovation not found: {innovation_id}"
-            )
-        arxiv_ids = innovation.get("arxiv_ids", [])
-    else:
-        if not arxiv_ids:
-            raise HTTPException(
-                status_code=400,
-                detail="arxiv_ids must not be empty for source_type=papers",
-            )
+    if innovation_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="innovation_id is required for source_type=innovation",
+        )
+    innovation = database.get_innovation(innovation_id)
+    if innovation is None:
+        raise HTTPException(
+            status_code=404, detail=f"Innovation not found: {innovation_id}"
+        )
+    arxiv_ids = innovation.get("arxiv_ids", [])
 
     experiment_id = database.insert_experiment(
         req.source_type, innovation_id, arxiv_ids, None, req.language, status="pending"
@@ -997,6 +993,113 @@ def _require_server(server_id: str) -> dict:
     if server is None:
         raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
     return server
+
+
+# --------------------------- Experiment runs ---------------------------------
+
+
+@app.post("/api/experiment-runs")
+async def create_experiment_run(req: ExperimentRunCreate) -> dict:
+    if database.get_experiment(req.experiment_id) is None:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if servers.get_server(req.server_id) is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    from .experiment_runner import build_default_steps
+
+    default_workdir = f"~/openlab-experiments/{req.experiment_id}"
+    workdir = req.remote_workdir.strip() or default_workdir
+    steps = build_default_steps(workdir, req.repo_url.strip())
+    run = database.create_experiment_run(
+        experiment_id=req.experiment_id,
+        server_id=req.server_id,
+        mode=req.mode,
+        remote_workdir=workdir,
+        launch_command=steps.get("launch_training", ""),
+    )
+    return {**run, "steps": steps}
+
+
+@app.get("/api/experiment-runs")
+async def list_experiment_runs() -> List[dict]:
+    return database.list_experiment_runs()
+
+
+@app.get("/api/experiment-runs/{run_id}")
+async def get_experiment_run(run_id: int) -> dict:
+    run = database.get_experiment_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    from .experiment_runner import read_log_tail
+
+    return {**run, "log_tail": read_log_tail(run_id, 200)}
+
+
+@app.delete("/api/experiment-runs/{run_id}")
+async def delete_experiment_run_endpoint(run_id: int) -> dict:
+    from .experiment_runner import ExperimentRunDriver, delete_log
+
+    driver = ExperimentRunDriver.get(run_id)
+    if driver is not None and driver.task is not None and not driver.task.done():
+        await driver.stop_run()
+    if not database.delete_experiment_run(run_id):
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    delete_log(run_id)
+    return {"status": "ok"}
+
+
+@app.post("/api/experiment-runs/{run_id}/start")
+async def start_experiment_run(run_id: int, req: ExperimentRunStartRequest) -> dict:
+    if database.get_experiment_run(run_id) is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    from .experiment_runner import ExperimentRunDriver
+
+    driver = ExperimentRunDriver.get_or_create(run_id)
+    try:
+        driver.start(req.steps)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"status": "started", "run_id": run_id}
+
+
+@app.websocket("/api/experiment-runs/ws")
+async def experiment_run_ws(websocket: WebSocket, run_id: int) -> None:
+    from . import experiment_runner as runner_module
+
+    await websocket.accept()
+    driver = runner_module.ExperimentRunDriver.get_or_create(run_id)
+
+    async def on_event(event: dict) -> None:
+        try:
+            await websocket.send_text(json.dumps(event, ensure_ascii=False))
+        except Exception:
+            pass
+
+    driver.attach(on_event)
+    try:
+        while True:
+            message = await websocket.receive_text()
+            try:
+                data = json.loads(message)
+            except ValueError:
+                continue
+            action = data.get("action")
+            if action in ("retry", "skip"):
+                try:
+                    driver.resume_with_action(
+                        action,
+                        str(data.get("step") or ""),
+                        str(data.get("command") or ""),
+                    )
+                except (RuntimeError, ValueError):
+                    pass
+            elif data.get("type") == "stop":
+                await driver.stop_run()
+    except Exception:
+        pass
+    finally:
+        driver.detach(on_event)
 
 
 @app.get("/api/servers", response_model=List[ServerOutput])

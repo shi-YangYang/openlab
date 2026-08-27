@@ -21,16 +21,7 @@ export default function ExperimentPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const innovationIdParam = searchParams.get('innovation_id')
-  const sourceType: 'innovation' | 'papers' = innovationIdParam ? 'innovation' : 'papers'
   const innovationId = innovationIdParam ? Number(innovationIdParam) : null
-  const arxivIds = useMemo(
-    () =>
-      (searchParams.get('ids') ?? '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    [searchParams],
-  )
   const [record, setRecord] = useState<ExperimentRecord | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [language, setLanguage] = useState<AnalysisLanguage>('zh')
@@ -55,15 +46,16 @@ export default function ExperimentPage() {
     return () => {
       if (timerRef.current) window.clearTimeout(timerRef.current)
     }
-  }, [arxivIds, innovationId])
+  }, [innovationId])
 
   const handleGenerate = async () => {
+    if (innovationId == null) return
     setSubmitting(true)
     try {
       const rec = await createExperiment({
-        source_type: sourceType,
-        innovation_id: sourceType === 'innovation' ? innovationId : null,
-        arxiv_ids: arxivIds,
+        source_type: 'innovation',
+        innovation_id: innovationId,
+        arxiv_ids: [],
         count,
         language,
       })
@@ -92,9 +84,7 @@ export default function ExperimentPage() {
   const content = record?.content
   const busy = submitting || record?.status === 'pending' || record?.status === 'running'
 
-  const crumbRoot = sourceType === 'innovation'
-    ? { label: '创新点历史', path: '/history/innovation' }
-    : { label: '论文库', path: '/library' }
+  const crumbRoot = { label: '创新点历史', path: '/history/innovation' }
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -128,9 +118,6 @@ export default function ExperimentPage() {
               { value: 'en', label: 'English' },
             ]}
           />
-          {sourceType === 'papers' && (
-            <Typography.Text type="secondary">已选 {arxivIds.length} 篇</Typography.Text>
-          )}
           <Button
             type="primary"
             icon={<ExperimentOutlined />}

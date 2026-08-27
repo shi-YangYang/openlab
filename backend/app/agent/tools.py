@@ -6,6 +6,7 @@ flagged as dangerous (``metadata["dangerous"]``) and the manual loop pauses
 before executing them so the user can approve or reject.
 """
 import contextvars
+import json
 import shlex
 from typing import Any, Dict, List, Optional
 
@@ -29,6 +30,8 @@ DANGEROUS_TOOLS = {
     "update_server",
     "delete_server",
     "deploy_upload",
+    "run_experiment",
+    "stop_experiment_run",
 }
 
 # The session id of the request currently executing tools, used by the dynamic
@@ -86,9 +89,7 @@ class InnovationArgs(BaseModel):
 
 
 class DesignExperimentArgs(BaseModel):
-    source_type: str = Field(..., description="实验设计依据来源：innovation 或 papers")
-    innovation_id: Optional[int] = Field(None, description="source_type=innovation 时的创新点 id")
-    arxiv_ids: Optional[List[str]] = Field(None, description="source_type=papers 时的论文 arxiv_id 列表")
+    innovation_id: int = Field(..., description="作为方案依据的创新点记录 id")
     count: int = Field(1, ge=1, le=3, description="实验方案数量")
     language: str = Field("zh", description="输出语言：zh 或 en")
 
@@ -114,6 +115,15 @@ class RunPythonCodeArgs(BaseModel):
 
 class RunShellCommandArgs(BaseModel):
     command: str = Field(..., description="要执行的本地 shell 命令")
+
+
+class RunExperimentArgs(BaseModel):
+    experiment_id: int = Field(..., description="实验方案 id")
+    server_id: str = Field(..., description="服务器 id")
+
+
+class GetExperimentRunStatusArgs(BaseModel):
+    run_id: int = Field(..., description="实验运行记录 id")
 
 
 class CreateServerArgs(BaseModel):
@@ -269,14 +279,12 @@ async def generate_innovation_points(
 
 
 async def design_experiment(
-    source_type: str,
-    innovation_id: Optional[int] = None,
-    arxiv_ids: Optional[List[str]] = None,
+    innovation_id: int,
     count: int = 1,
     language: str = "zh",
 ) -> List[Dict[str, Any]]:
     plans = await experiment.generate_experiments(
-        source_type, innovation_id, arxiv_ids or [], language, count
+        "innovation", innovation_id, [], language, count
     )
     return [p.model_dump() for p in plans]
 
@@ -312,6 +320,105 @@ async def monitor_server(server_id: str) -> Dict[str, Any]:
     if server is None:
         return {"error": f"Server not found: {server_id}"}
     return monitor.collect(server)
+
+
+async def run_experiment(experiment_id: int, server_id: str) -> Dict[str, Any]:
+    """Create and launch an experiment run on the given server."""
+    from ..experiment_runner import ExperimentRunDriver, build_default_steps
+
+    plan = database.get_experiment(experiment_id)
+    if plan is None:
+        return {"error": f"Experiment not found: {experiment_id}"}
+    if servers.get_server(server_id) is None:
+        return {"error": f"Server not found: {server_id}"}
+
+    workdir = f"~/openlab-experiments/{experiment_id}"
+    steps = build_default_steps(workdir)
+
+    # Ask the LLM to refine env-setup and training commands for this specific
+    # plan; fall back to the defaults when generation fails.
+    try:
+        from ..llm_config import get_effective_config
+
+        cfg = get_effective_config()
+        if cfg.get("api_key"):
+            from langchain_openai import ChatOpenAI
+
+            llm = ChatOpenAI(
+                base_url=cfg["base_url"], api_key=cfg["api_key"],
+                model=cfg["model"], temperature=0.2,
+            )
+            prompt = (
+                "根据以下实验方案 JSON，生成在 Linux 服务器上执行的 setup_command"
+                "（准备环境/安装依赖）与 launch_command（后台启动训练并打印 PID，"
+                '形如 `cd {workdir} && nohup python train.py > train.log 2>&1 & echo $!`）。'
+                f"工作目录统一使用 {workdir}。只返回 JSON 对象。\n方案：{json.dumps(plan.get('content'), ensure_ascii=False)}"
+            )
+            resp = await llm.ainvoke([("human", prompt)])
+            raw = resp.content
+            if isinstance(raw, list):
+                text = "".join(
+                    str(item.get("text", "")) if isinstance(item, dict) else str(item)
+                    for item in raw
+                )
+            else:
+                text = str(raw)
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1:
+                parsed = json.loads(text[start : end + 1])
+                if parsed.get("setup_command"):
+                    steps["setup_env"] = parsed["setup_command"]
+                if parsed.get("launch_command"):
+                    steps["launch_training"] = parsed["launch_command"]
+    except Exception:
+        pass  # fall back to defaults silently; user can edit later
+
+    run = database.create_experiment_run(
+        experiment_id=experiment_id,
+        server_id=server_id,
+        mode="agent",
+        remote_workdir=workdir,
+        launch_command=steps.get("launch_training", ""),
+    )
+    run_id = run["id"]
+    driver = ExperimentRunDriver.get_or_create(run_id)
+    driver.start(steps)
+    return {
+        "run_id": run_id,
+        "status": "started",
+        "steps": steps,
+        "message": (
+            f"实验运行已启动（run_id={run_id}），可通过 get_experiment_run_status(run_id={run_id}) "
+            f"查看进度；如需终止调用 stop_experiment_run(run_id={run_id})。"
+        ),
+    }
+
+
+async def get_experiment_run_status(run_id: int) -> Dict[str, Any]:
+    from ..experiment_runner import read_log_tail
+
+    record = database.get_experiment_run(run_id)
+    if record is None:
+        return {"error": f"Experiment run not found: {run_id}"}
+    return {
+        **record,
+        "log_tail": read_log_tail(run_id, 10),
+    }
+
+
+async def stop_experiment_run(run_id: int) -> Dict[str, Any]:
+    from ..experiment_runner import ExperimentRunDriver
+
+    driver = ExperimentRunDriver.get(run_id)
+    if driver is None:
+        # No live task; still try to kill a recorded PID by checking the run.
+        record = database.get_experiment_run(run_id)
+        if record is None:
+            return {"error": f"Experiment run not found: {run_id}"}
+        return {"message": "该运行没有活跃任务", "status": record.get("status")}
+    await driver.stop_run()
+    return {"message": "已停止", "run_id": run_id}
 
 
 async def list_search_history() -> List[Dict[str, Any]]:
@@ -469,7 +576,7 @@ TOOLS: List[StructuredTool] = [
     _tool(
         design_experiment,
         "design_experiment",
-        "基于创新点或论文分析设计可执行的实验方案。",
+        "基于一条创新点记录一对一生成可执行的实验方案。",
         DesignExperimentArgs,
     ),
     _tool(
@@ -568,6 +675,26 @@ TOOLS: List[StructuredTool] = [
         "run_shell_command",
         "在会话沙箱中执行一条本地 shell 命令并返回输出。危险操作，执行前需用户确认。",
         RunShellCommandArgs,
+        dangerous=True,
+    ),
+    _tool(
+        run_experiment,
+        "run_experiment",
+        "把指定实验方案自动部署到指定服务器并启动训练（环境准备/后台启动）。危险操作，执行前需用户确认。",
+        RunExperimentArgs,
+        dangerous=True,
+    ),
+    _tool(
+        get_experiment_run_status,
+        "get_experiment_run_status",
+        "查询一次实验运行的状态、当前步骤与最近日志。",
+        GetExperimentRunStatusArgs,
+    ),
+    _tool(
+        stop_experiment_run,
+        "stop_experiment_run",
+        "终止一次正在运行的实验（终止远端进程并标记停止）。危险操作，执行前需用户确认。",
+        GetExperimentRunStatusArgs,
         dangerous=True,
     ),
 ]

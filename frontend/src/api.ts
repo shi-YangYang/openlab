@@ -8,6 +8,7 @@ import type {
   ExecResult,
   ExperimentHistoryItem,
   ExperimentRecord,
+  ExperimentRun,
   InnovationHistoryItem,
   InnovationRecord,
   LlmGroupsConfig,
@@ -38,6 +39,37 @@ const BASE = '/api'
 export function terminalWsUrl(path: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   return `${protocol}://${window.location.host}${path}`
+}
+
+// ------------------------- Experiment runs ---------------------------------
+
+export async function createExperimentRun(input: {
+  experiment_id: number
+  server_id: string
+  mode?: string
+  remote_workdir?: string
+  repo_url?: string
+}): Promise<ExperimentRun> {
+  return post<ExperimentRun>('/experiment-runs', input)
+}
+
+export async function listExperimentRuns(): Promise<ExperimentRun[]> {
+  return get<ExperimentRun[]>('/experiment-runs')
+}
+
+export async function getExperimentRun(id: number): Promise<ExperimentRun> {
+  return get<ExperimentRun>(`/experiment-runs/${id}`)
+}
+
+export async function deleteExperimentRun(id: number): Promise<void> {
+  await del(`/experiment-runs/${id}`)
+}
+
+export async function startExperimentRun(
+  id: number,
+  steps: Record<string, string>,
+): Promise<void> {
+  await post(`/experiment-runs/${id}/start`, { steps })
 }
 
 export class ApiError extends Error {
