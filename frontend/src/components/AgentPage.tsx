@@ -649,7 +649,11 @@ export default function AgentPage() {
                           onClick={() => startRename(item)}
                         />
                         <Popconfirm
-                          title="确认删除该会话？"
+                          title={
+                            item.running
+                              ? '该会话正在运行，删除将终止任务并删除记录？'
+                              : '确认删除该会话？'
+                          }
                           onConfirm={() => void handleDelete(item.id)}
                         >
                           <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -887,33 +891,35 @@ export default function AgentPage() {
                 options={reasoningEffortOptions}
               />
             </Space>
-            <Tooltip
-              title={
-                usage
-                  ? contextLength
-                    ? `上下文 ${lastInput.toLocaleString()} / ${contextLength.toLocaleString()} tokens（${Math.round(
-                        (lastInput / contextLength) * 100,
-                      )}%）`
-                    : `已用 ${lastInput.toLocaleString()} tokens`
-                  : '暂无用量统计'
-              }
-            >
-              {usage ? (
-                <Progress
-                  type="circle"
-                  size={22}
-                  percent={
-                    contextLength ? Math.min(100, Math.round((lastInput / contextLength) * 100)) : 100
-                  }
-                  showInfo={false}
-                  strokeColor={
-                    contextLength && lastInput / contextLength > 0.8 ? '#faad14' : '#1677ff'
-                  }
-                />
-              ) : (
-                <Progress type="circle" size={22} percent={0} showInfo={false} />
-              )}
-            </Tooltip>
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+              <Tooltip
+                title={
+                  usage
+                    ? contextLength
+                      ? `上下文 ${lastInput.toLocaleString()} / ${contextLength.toLocaleString()} tokens（${Math.round(
+                          (lastInput / contextLength) * 100,
+                        )}%）`
+                      : `已用 ${lastInput.toLocaleString()} tokens`
+                    : '暂无用量统计'
+                }
+              >
+                {usage ? (
+                  <Progress
+                    type="circle"
+                    size={22}
+                    percent={
+                      contextLength ? Math.min(100, Math.round((lastInput / contextLength) * 100)) : 100
+                    }
+                    showInfo={false}
+                    strokeColor={
+                      contextLength && lastInput / contextLength > 0.8 ? '#faad14' : '#1677ff'
+                    }
+                  />
+                ) : (
+                  <Progress type="circle" size={22} percent={0} showInfo={false} />
+                )}
+              </Tooltip>
+            </div>
             <div style={{ flex: 1 }} />
             {running && !offline ? (
               <Button danger icon={<StopOutlined />} onClick={handleStop}>

@@ -22,12 +22,14 @@ import {
 } from '@ant-design/icons'
 import {
   createExperimentRun,
+  getExperimentRun,
+  listExperimentRuns,
   listServers,
   startExperimentRun,
   testServer,
   terminalWsUrl,
 } from '../api'
-import type { ExperimentRecord, Server } from '../types'
+import type { ExperimentRecord, ExperimentRun, Server } from '../types'
 
 const STEPS = ['sync_code', 'setup_env', 'launch_training'] as const
 type Step = (typeof STEPS)[number]
@@ -79,8 +81,23 @@ export default function ExperimentRunPanel({ open, onClose, experiment }: Props)
   const [failedStep, setFailedStep] = useState<Step | null>(null)
   const [retryCommand, setRetryCommand] = useState('')
   const [retryOpen, setRetryOpen] = useState(false)
+  const [disconnected, setDisconnected] = useState(false)
   const logBoxRef = useRef<HTMLDivElement>(null)
   const socketRef = useRef<WebSocket | null>(null)
+  const adoptedExpRef = useRef<number | null>(null)
+  const runIdRef = useRef<number | null>(null)
+  const runStatusRef = useRef('pending')
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const wsClosedByUsRef = useRef(false)
+
+  useEffect(() => {
+    runIdRef.current = runId
+  }, [runId])
+
+  useEffect(() => {
+    runStatusRef.current = runStatus
+  }, [runStatus])
 
   useEffect(() => {
     if (!open) return
@@ -95,6 +112,11 @@ export default function ExperimentRunPanel({ open, onClose, experiment }: Props)
 
   useEffect(() => {
     return () => {
+      wsClosedByUsRef.current = true
+      if (reconnectTimerRef.current != null) {
+        window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
       socketRef.current?.close()
       socketRef.current = null
     }
@@ -120,36 +142,106 @@ export default function ExperimentRunPanel({ open, onClose, experiment }: Props)
     }
   }
 
-  const connectWs = useCallback((id: number) => {
-    const ws = new WebSocket(terminalWsUrl(`/api/experiment-runs/ws?run_id=${id}`))
-    socketRef.current = ws
-    ws.onmessage = (event) => {
-      let data: Record<string, unknown>
-      try {
-        data = JSON.parse(event.data as string)
-      } catch {
-        return
-      }
-      if (data.type === 'log') {
-        setLogs((prev) => {
-          const next = [...prev, String(data.line ?? '')]
-          return next.length > 5000 ? next.slice(next.length - 5000) : next
-        })
-      } else if (data.type === 'step') {
-        const step = String(data.step)
-        const st = String(data.status) as StepState
-        setStepStates((prev) => ({ ...prev, [step]: st }))
-        if (st === 'failed') setFailedStep(step as Step)
-      } else if (data.type === 'status') {
-        const st = String(data.status)
-        setRunStatus(st)
-        if (data.error) setRunError(String(data.error))
-      }
+  const applyRunDetail = useCallback((detail: ExperimentRun) => {
+    setRunStatus(detail.status)
+    if (detail.status === 'paused') {
+      setRunError(detail.error || '')
+      if (detail.current_step) setFailedStep(detail.current_step as Step)
     }
-    ws.onclose = () => {
-      if (socketRef.current === ws) socketRef.current = null
+    if (detail.current_step) {
+      setStepStates((prev) => ({
+        ...prev,
+        [detail.current_step]: detail.status === 'paused' ? 'failed' : 'running',
+      }))
     }
+    if (detail.log_tail) setLogs(detail.log_tail.split('\n'))
   }, [])
+
+  const connectWs = useCallback((id: number) => {
+    reconnectAttemptsRef.current = 0
+    setDisconnected(false)
+    wsClosedByUsRef.current = false
+
+    const connect = () => {
+      const ws = new WebSocket(terminalWsUrl(`/api/experiment-runs/ws?run_id=${id}`))
+      socketRef.current = ws
+      ws.onopen = () => {
+        reconnectAttemptsRef.current = 0
+        setDisconnected(false)
+        const rid = runIdRef.current
+        if (rid != null) {
+          void getExperimentRun(rid)
+            .then((detail) => applyRunDetail(detail))
+            .catch(() => {})
+        }
+      }
+      ws.onmessage = (event) => {
+        let data: Record<string, unknown>
+        try {
+          data = JSON.parse(event.data as string)
+        } catch {
+          return
+        }
+        if (data.type === 'log') {
+          setLogs((prev) => {
+            const next = [...prev, String(data.line ?? '')]
+            return next.length > 5000 ? next.slice(next.length - 5000) : next
+          })
+        } else if (data.type === 'step') {
+          const step = String(data.step)
+          const st = String(data.status) as StepState
+          setStepStates((prev) => ({ ...prev, [step]: st }))
+          if (st === 'failed') setFailedStep(step as Step)
+        } else if (data.type === 'status') {
+          const st = String(data.status)
+          setRunStatus(st)
+          if (data.error) setRunError(String(data.error))
+        }
+      }
+      ws.onclose = () => {
+        if (socketRef.current === ws) socketRef.current = null
+        if (wsClosedByUsRef.current) return
+        if (!['preparing', 'running', 'paused'].includes(runStatusRef.current)) return
+        if (reconnectAttemptsRef.current >= 5) return
+        const delay = 1000 * 2 ** reconnectAttemptsRef.current
+        reconnectAttemptsRef.current += 1
+        setDisconnected(true)
+        reconnectTimerRef.current = window.setTimeout(() => {
+          reconnectTimerRef.current = null
+          if (!wsClosedByUsRef.current) connect()
+        }, delay)
+      }
+    }
+
+    connect()
+  }, [applyRunDetail])
+
+  useEffect(() => {
+    if (!open || runId != null || experiment?.id == null) return
+    if (adoptedExpRef.current === experiment.id) return
+    adoptedExpRef.current = experiment.id
+    void (async () => {
+      try {
+        const runs = await listExperimentRuns()
+        const active = runs.filter(
+          (r) =>
+            r.experiment_id === experiment.id &&
+            ['preparing', 'running', 'paused'].includes(r.status),
+        )
+        if (active.length === 0) return
+        const latest = active.reduce((a, b) =>
+          (a.updated_at ?? '') >= (b.updated_at ?? '') ? a : b,
+        )
+        setRunId(latest.id)
+        setRunStatus(latest.status)
+        connectWs(latest.id)
+        const detail = await getExperimentRun(latest.id)
+        applyRunDetail(detail)
+      } catch {
+        // ignore adoption failures; the creation view stays usable
+      }
+    })()
+  }, [open, runId, experiment.id, connectWs, applyRunDetail])
 
   const handleStart = async () => {
     if (!serverId) {
@@ -222,6 +314,25 @@ export default function ExperimentRunPanel({ open, onClose, experiment }: Props)
   const filteredLogs = filter.trim()
     ? logs.filter((l) => l.toLowerCase().includes(filter.trim().toLowerCase()))
     : logs
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      message.success('已复制')
+    } catch {
+      message.error('复制失败')
+    }
+  }
+
+  const downloadLogs = () => {
+    const blob = new Blob([filteredLogs.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `experiment-run-${runId}.log`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div>
@@ -372,7 +483,20 @@ export default function ExperimentRunPanel({ open, onClose, experiment }: Props)
               <Button size="small" onClick={() => setAutoScroll((v) => !v)}>
                 {autoScroll ? '暂停滚动' : '恢复滚动'}
               </Button>
+              <Button
+                size="small"
+                disabled={filteredLogs.length === 0}
+                onClick={() => void copyText(filteredLogs.join('\n'))}
+              >
+                复制日志
+              </Button>
+              <Button size="small" disabled={filteredLogs.length === 0} onClick={downloadLogs}>
+                下载日志
+              </Button>
             </Space>
+            {disconnected && (
+              <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="日志连接中断，正在重连…" />
+            )}
             <div
               ref={logBoxRef}
               style={{

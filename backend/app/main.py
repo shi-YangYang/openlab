@@ -958,6 +958,19 @@ async def get_experiment(experiment_id: int) -> dict:
 
 @app.delete("/api/experiments/{experiment_id}")
 async def delete_experiment(experiment_id: int) -> dict:
+    from .experiment_runner import ExperimentRunDriver, delete_log
+
+    runs = [
+        r
+        for r in database.list_experiment_runs()
+        if r.get("experiment_id") == experiment_id
+    ]
+    for run in runs:
+        driver = ExperimentRunDriver.get(run["id"])
+        if driver is not None and driver.task is not None and not driver.task.done():
+            await driver.stop_run()
+        database.delete_experiment_run(run["id"])
+        delete_log(run["id"])
     if not database.delete_experiment(experiment_id):
         raise HTTPException(status_code=404, detail=f"No experiment {experiment_id}")
     return {"status": "ok"}
@@ -1446,6 +1459,7 @@ async def update_agent_session(session_id: str, req: AgentSessionUpdate) -> dict
 
 @app.delete("/api/agent/sessions/{session_id}")
 async def delete_agent_session(session_id: str) -> dict:
+    agent_runner.stop(session_id)
     if not delete_session(session_id):
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
     return {"status": "ok"}

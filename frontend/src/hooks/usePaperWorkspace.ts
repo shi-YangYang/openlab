@@ -42,7 +42,7 @@ export function usePaperWorkspace(options: Options = {}) {
   }, [])
 
   const pollStatuses = useCallback(async (ids: string[]) => {
-    const deadline = Date.now() + 180000
+    const deadline = Date.now() + 600000
     while (Date.now() < deadline) {
       try {
         const records = await listPapers(ids)
@@ -68,7 +68,8 @@ export function usePaperWorkspace(options: Options = {}) {
       }
       await new Promise((res) => setTimeout(res, 1500))
     }
-  }, [])
+    await refreshStatuses(ids)
+  }, [refreshStatuses])
 
   const refreshAnalysisStatuses = useCallback(async (ids: string[]) => {
     try {

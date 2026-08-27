@@ -116,6 +116,8 @@ CREATE TABLE IF NOT EXISTS experiment_runs (
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(settings.db_path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -152,6 +154,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         names = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in names:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_papers_status ON papers(status)")
 
 
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
