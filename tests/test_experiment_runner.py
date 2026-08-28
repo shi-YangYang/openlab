@@ -112,13 +112,14 @@ def test_build_default_steps_contains_expected_keys():
         assert key in steps
 
 
-def test_successful_pipeline_reaches_running(fake_server):
+def test_successful_pipeline_completes(fake_server):
     run_id = _seed_run()
     driver = ExperimentRunDriver(run_id)
 
     ssh = FakeSSH([
         (["installed"], 0),
         (["12345"], 0),   # launch prints PID
+        (["epoch 1 loss 0.5", "epoch 2 loss 0.3", "__EXIT__1"], 0),  # monitor: log + pid gone
     ])
     experiment_runner._connect = lambda record: ssh
 
@@ -127,22 +128,25 @@ def test_successful_pipeline_reaches_running(fake_server):
 
     async def main():
         driver.start(build_default_steps("/tmp/exp"))
-        for _ in range(200):
+        for _ in range(400):
             await asyncio.sleep(0.05)
             rec = database.get_experiment_run(run_id)
-            if rec["status"] in ("running", "paused", "failed"):
+            if rec["status"] in ("succeeded", "running", "paused", "failed"):
+                if rec["status"] == "running":
+                    continue  # monitor still polling; wait for pid-exit detection
                 break
 
     asyncio.run(main())
 
     rec = database.get_experiment_run(run_id)
     print("EVENTS:", [(e.get("type"), e.get("step"), e.get("status"), (e.get("error") or "")[:60]) for e in events])
-    assert rec["status"] == "running"
+    assert rec["status"] == "succeeded"
     assert rec["pid"] == 12345
     types = [(e.get("type"), e.get("step"), e.get("status")) for e in events]
-    assert ("status", None, "preparing") in types or ("status", None, "running") in types
-    step_successes = [e for e in events if e.get("type") == "step" and e.get("status") == "success"]
-    assert len(step_successes) == 3
+    assert ("step", "monitor_output", "success") in types
+    # monitor lines must land in the run log
+    log_text = experiment_runner.read_log_tail(run_id)
+    assert "epoch 2 loss 0.3" in log_text
 
 
 def test_failure_after_retry_pauses(fake_server):

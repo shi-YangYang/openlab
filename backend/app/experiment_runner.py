@@ -89,23 +89,43 @@ def _run_command_streamed(
     channel.settimeout(COMMAND_TIMEOUT)
     channel.exec_command(command)
     buffer = b""
+
+    def _flush(final: bool) -> None:
+        nonlocal buffer
+        while b"\n" in buffer:
+            raw, buffer = buffer.split(b"\n", 1)
+            text = raw.decode("utf-8", errors="replace").rstrip("\r")
+            lines.append(text)
+            on_line(text)
+        if final and buffer:
+            text = buffer.decode("utf-8", errors="replace").rstrip("\r")
+            lines.append(text)
+            on_line(text)
+            buffer = b""
+
     while True:
         if channel.recv_ready():
             data = channel.recv(4096)
             if not data:
                 break
             buffer += data
-            while b"\n" in buffer:
-                raw, buffer = buffer.split(b"\n", 1)
-                text = raw.decode("utf-8", errors="replace").rstrip("\r")
-                lines.append(text)
-                on_line(text)
+            _flush(final=False)
         elif channel.exit_status_ready():
-            if buffer:
-                text = buffer.decode("utf-8", errors="replace").rstrip("\r")
-                lines.append(text)
-                on_line(text)
-                buffer = b""
+            # The command finished, but data may still be in flight: drain
+            # until recv_ready() goes quiet before returning.
+            drained_empty = False
+            while not drained_empty:
+                drained_empty = True
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline:
+                    if channel.recv_ready():
+                        data = channel.recv(4096)
+                        if data:
+                            buffer += data
+                            drained_empty = False
+                            break
+                    time.sleep(0.02)
+            _flush(final=True)
             break
         else:
             time.sleep(0.05)
@@ -344,11 +364,89 @@ class ExperimentRunDriver:
             if getattr(self, "_skip_steps", None) and step in self._skip_steps:
                 await self._emit_step(step, "skipped")
                 continue
+            if step == "monitor_output":
+                # The monitor is a polling loop (not a one-shot command): tail
+                # the training log incrementally and finish when the recorded
+                # pid exits. Emits/logs every new line, so the run log ends up
+                # containing the full training output.
+                await self._emit_step(step, "running")
+                ok = await self._monitor_loop(server_record)
+                if ok:
+                    await self._emit_step(step, "success")
+                else:
+                    await self._emit_status("paused", f"步骤 {step} 执行失败")
+                return
             ok = await self._execute_step(server_record, step, self.steps.get(step, ""))
             if not ok:
                 await self._emit_status("paused", f"步骤 {step} 执行失败")
                 return
         await self._emit_status("running")
+
+    async def _monitor_loop(self, server_record: Dict[str, Any]) -> bool:
+        """Tail the remote training log until the launched pid exits."""
+        record = database.get_experiment_run(self.run_id) or {}
+        pid = record.get("pid")
+        workdir = (record.get("remote_workdir") or "~").rstrip("/")
+        log_file = f"{workdir}/train_output.log"
+        offset = 0
+        idle_rounds = 0
+        while True:
+            client = await asyncio.to_thread(self._resolve_client, server_record)
+            try:
+                # Drain new log content since last offset.
+                command = (
+                    f"tail -c +{offset + 1} {log_file} 2>/dev/null; "
+                    f"echo __EXIT__$(test -n {pid} && kill -0 {pid} 2>/dev/null; echo $?)"
+                    if pid
+                    else f"tail -c +{offset + 1} {log_file} 2>/dev/null; echo __EXIT__9"
+                )
+                exit_code, lines = await asyncio.to_thread(
+                    _run_command_streamed, client, command, lambda line: None
+                )
+            except Exception as exc:  # noqa: BLE001
+                await self._emit(
+                    {"type": "log", "line": f"[monitor 本地异常] {exc}", "stream": "stdout"}
+                )
+                return False
+            finally:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+            alive_marker = next(
+                (l for l in reversed(lines) if l.startswith("__EXIT__")), None
+            )
+            content_lines = [l for l in lines if not l.startswith("__EXIT__")]
+            new_bytes = sum(len(l.encode("utf-8")) + 1 for l in content_lines)
+            if new_bytes > 0:
+                offset += new_bytes
+                idle_rounds = 0
+                for line in content_lines:
+                    await append_log(self.run_id, line)
+                    await self._emit({"type": "log", "line": line, "stream": "stdout"})
+            else:
+                idle_rounds += 1
+
+            alive = alive_marker == "__EXIT__0" if pid else False
+            if pid and alive_marker not in ("__EXIT__0", "__EXIT__1"):
+                alive = False
+            if not alive:
+                if pid is None and idle_rounds < 15:
+                    # No pid recorded: fall back to waiting until the log stops
+                    # growing for ~30s before declaring completion.
+                    await asyncio.sleep(MONITOR_POLL_SECONDS)
+                    continue
+                await self._emit(
+                    {
+                        "type": "log",
+                        "line": "[monitor] 训练进程已退出，抓取最终日志…",
+                        "stream": "stdout",
+                    }
+                )
+                await self._emit_status("succeeded")
+                return True
+            await asyncio.sleep(MONITOR_POLL_SECONDS)
 
     # ---- control from paused state ----------------------------------------
     def resume_with_action(self, action: str, step: str, command: str = "") -> None:
