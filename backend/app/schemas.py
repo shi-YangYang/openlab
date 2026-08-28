@@ -459,3 +459,7 @@ class ExperimentRunCreate(BaseModel):
 
 class ExperimentRunStartRequest(BaseModel):
     steps: Dict[str, str]
+
+
+class TranslationStartRequest(BaseModel):
+    language: str = Field("zh", pattern="^(zh|en)$")

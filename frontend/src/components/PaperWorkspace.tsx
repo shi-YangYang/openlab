@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
-import { Button, Card, Input, Popconfirm, Space, Tag } from 'antd'
-import { BulbOutlined, DeleteOutlined, DownloadOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, UploadOutlined } from '@ant-design/icons'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { App as AntApp, Button, Card, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
+import { BulbOutlined, DeleteOutlined, DownloadOutlined, FilePdfOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, TranslationOutlined, UploadOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
+import { getLlmConfig, getTranslation, getTranslationProgress, startTranslation } from '../api'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
 interface Props {
@@ -11,7 +12,14 @@ interface Props {
   allowDelete?: boolean
 }
 
+interface TranslateState {
+  progress: number
+  message: string
+  phase: 'idle' | 'running' | 'done'
+}
+
 export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDelete = false }: Props) {
+  const { message } = AntApp.useApp()
   const {
     papers,
     loading,
@@ -34,6 +42,117 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
   } = workspace
 
   const [keyword, setKeyword] = useState('')
+  const [translateState, setTranslateState] = useState<Record<string, TranslateState>>({})
+  const [translatingCount, setTranslatingCount] = useState(0)
+  const [translateError, setTranslateError] = useState<Record<string, string>>({})
+  const [confirmTranslate, setConfirmTranslate] = useState<string | null>(null)
+  const [viewTranslation, setViewTranslation] = useState<{
+    open: boolean
+    arxivId: string
+    title: string
+    content: string
+  }>({ open: false, arxivId: '', title: '', content: '' })
+  const pollTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current)
+    }
+  }, [])
+
+  const pollTranslation = useCallback(
+    (arxivId: string) => {
+      if (pollTimerRef.current) window.clearTimeout(pollTimerRef.current)
+      const tick = async () => {
+        try {
+          const res = await getTranslationProgress(arxivId)
+          if (res.translated) {
+            setTranslateState((prev) => ({
+              ...prev,
+              [arxivId]: { progress: 100, message: '翻译完成', phase: 'done' },
+            }))
+            setTranslatingCount((c) => Math.max(0, c - 1))
+            message.success('论文翻译完成')
+            return
+          }
+          setTranslateState((prev) => ({
+            ...prev,
+            [arxivId]: {
+              progress: res.progress ?? 0,
+              message: res.message || '',
+              phase: 'running',
+            },
+          }))
+        } catch {
+          // transient error; keep polling
+        }
+        pollTimerRef.current = window.setTimeout(() => void tick(), 3000)
+      }
+      void tick()
+    },
+    [message],
+  )
+
+  const doTranslate = async (arxivId: string) => {
+    setTranslateState((prev) => ({
+      ...prev,
+      [arxivId]: { progress: 2, message: '排队中', phase: 'running' },
+    }))
+    setTranslatingCount((c) => c + 1)
+    try {
+      await startTranslation(arxivId, 'zh')
+      pollTranslation(arxivId)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '发起翻译失败'
+      message.error(msg)
+      setTranslateError((prev) => ({ ...prev, [arxivId]: msg }))
+      setTranslateState((prev) => ({ ...prev, [arxivId]: { progress: 0, message: '', phase: 'idle' } }))
+      setTranslatingCount((c) => Math.max(0, c - 1))
+    }
+  }
+
+  const handleTranslate = async (arxivId: string) => {
+    // Pre-check LLM config
+    try {
+      const cfg = await getLlmConfig()
+      const group = cfg.groups.find((g) => g.id === cfg.active_group) ?? cfg.groups[0]
+      if (!group || !group.api_key) {
+        message.warning('请先到设置页配置 LLM API Key，否则无法翻译')
+        return
+      }
+    } catch {
+      message.warning('无法检查 LLM 配置，请确认后端正常运行')
+      return
+    }
+    // Show confirmation dialog (token cost notice)
+    setConfirmTranslate(arxivId)
+  }
+
+  const handleConfirmTranslate = async () => {
+    const id = confirmTranslate
+    setConfirmTranslate(null)
+    if (id) await doTranslate(id)
+  }
+
+  const handleViewTranslation = async (arxivId: string) => {
+    try {
+      const res = await getTranslation(arxivId)
+      if (!res.translated || !res.content) {
+        message.warning('翻译文件不存在，请重新翻译')
+        setTranslateState((prev) => ({ ...prev, [arxivId]: { progress: 0, message: '', phase: 'idle' } }))
+        return
+      }
+      const paper = workspace.papers.find((p) => p.arxiv_id === arxivId)
+      setViewTranslation({
+        open: true,
+        arxivId,
+        title: paper?.title || arxivId,
+        content: res.content,
+      })
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载翻译失败')
+    }
+  }
 
   const filteredPapers = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -46,6 +165,7 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
   }, [papers, keyword])
 
   const showStatus = Object.keys(statusMap).length > 0
+  const showTranslate = translatingCount > 0 || papers.length > 0
 
   return (
     <Card
@@ -93,7 +213,7 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
           )}
           {allowDelete && (
             <Popconfirm
-              title={`确定删除选中的 ${selectedIds.length} 篇论文？将同时清理本地 PDF。`}
+              title={`确定删除选中的 ${selectedIds.length} 篇论文？将同时清理本地 PDF 与翻译。`}
               disabled={!selectedIds.length}
               onConfirm={() => void handleDeleteMany(selectedIds)}
             >
@@ -117,8 +237,67 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
         analysisStatusMap={analysisStatusMap}
         showAnalysisStatus={Object.keys(analysisStatusMap).length > 0}
         onAnalyze={handleAnalyzeOne}
-        onDelete={allowDelete ? handleDeleteOne : undefined}
+        translateState={showTranslate ? translateState : undefined}
+        translateError={translateError}
+        onTranslate={allowDelete ? (id) => void handleTranslate(id) : undefined}
+        onViewTranslation={allowDelete ? (id) => void handleViewTranslation(id) : undefined}
       />
+
+      <Modal
+        title={
+          <Space>
+            <TranslationOutlined />
+            <span>论文翻译：{viewTranslation.title || viewTranslation.arxivId}</span>
+          </Space>
+        }
+        open={viewTranslation.open}
+        onCancel={() => setViewTranslation((v) => ({ ...v, open: false }))}
+        footer={
+          <Button
+            type="primary"
+            icon={<FilePdfOutlined />}
+            href={`/api/papers/${encodeURIComponent(viewTranslation.arxivId)}/translation/pdf`}
+            target="_blank"
+          >
+            打开翻译 PDF
+          </Button>
+        }
+        width={900}
+      >
+        <div
+          style={{
+            maxHeight: '65vh',
+            overflowY: 'auto',
+            background: '#fafafa',
+            padding: 16,
+            borderRadius: 6,
+          }}
+          className="markdown"
+        >
+          <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
+            {viewTranslation.content}
+          </pre>
+        </div>
+      </Modal>
+
+      <Modal
+        title="开始翻译论文"
+        open={!!confirmTranslate}
+        onOk={() => void handleConfirmTranslate()}
+        onCancel={() => setConfirmTranslate(null)}
+        okText="开始翻译"
+        cancelText="取消"
+      >
+        <Typography.Paragraph>
+          翻译将使用 LLM 对论文全文逐段翻译，请注意：
+        </Typography.Paragraph>
+        <ul style={{ paddingLeft: 20, fontSize: 13 }}>
+          <li>翻译耗时取决于论文长度，通常需要 <b>1-5 分钟</b></li>
+          <li>将消耗较多 LLM <b>token 额度</b>（一篇论文约 5-20 万 token）</li>
+          <li>翻译期间请勿关闭页面，进度条会实时更新</li>
+          <li>翻译完成后可在线查看译文或打开排版 PDF</li>
+        </ul>
+      </Modal>
     </Card>
   )
 }

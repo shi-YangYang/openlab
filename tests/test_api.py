@@ -682,3 +682,46 @@ def test_delete_experiment_cascades_runs(client):
     assert gone.status_code == 404
     listed = client.get("/api/experiment-runs")
     assert not any(r["id"] == run_id for r in listed.json())
+
+
+def test_translation_endpoints(client):
+    from app import database
+
+    database.init_db()
+    database.upsert_paper(make_paper("1706.03762"))
+    # set downloaded status with a local pdf
+    database.set_status("1706.03762", "downloaded", "x.pdf")
+
+    # status: downloaded but no translation file
+    resp = client.get("/api/papers/1706.03762/translation")
+    assert resp.status_code == 200
+    assert resp.json()["translated"] is False
+
+    # progress before start
+    resp = client.get("/api/papers/1706.03762/translate/progress")
+    assert resp.status_code == 200
+    assert resp.json()["translated"] is False
+
+    # missing paper -> 404
+    resp = client.get("/api/papers/9999.9999/translation")
+    assert resp.status_code == 404
+
+
+def test_delete_paper_cleans_translation(client):
+    from app import config, database
+    from app.translation import delete_translation, translated_path
+
+    database.init_db()
+    database.upsert_paper(make_paper("1706.03762"))
+    database.set_status("1706.03762", "downloaded", "x.pdf")
+
+    tp = translated_path("1706.03762")
+    tp.parent.mkdir(parents=True, exist_ok=True)
+    tp.write_text("# translation", encoding="utf-8")
+    assert tp.exists()
+
+    resp = client.delete("/api/papers/1706.03762")
+    assert resp.status_code == 200
+    assert not tp.exists()
+    # cleanup for other tests that reuse this paper id
+    delete_translation("1706.03762")

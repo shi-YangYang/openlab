@@ -72,6 +72,39 @@ export async function startExperimentRun(
   await post(`/experiment-runs/${id}/start`, { steps })
 }
 
+// --------------------------- Paper translation -------------------------------
+
+export interface TranslationStatus {
+  translated: boolean
+  progress?: number
+  message?: string
+  content?: string | null
+}
+
+export async function getTranslation(arxivId: string): Promise<TranslationStatus> {
+  return get<TranslationStatus>(
+    `/papers/${encodeURIComponent(arxivId)}/translation`,
+  )
+}
+
+export async function startTranslation(
+  arxivId: string,
+  language: string = 'zh',
+): Promise<void> {
+  await post(
+    `/papers/${encodeURIComponent(arxivId)}/translate`,
+    { language },
+  )
+}
+
+export async function getTranslationProgress(
+  arxivId: string,
+): Promise<TranslationStatus> {
+  return get<TranslationStatus>(
+    `/papers/${encodeURIComponent(arxivId)}/translate/progress`,
+  )
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {

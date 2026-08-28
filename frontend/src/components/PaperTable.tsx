@@ -1,6 +1,6 @@
-import { Button, Popconfirm, Progress, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { Button, Progress, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import { DeleteOutlined, FilePdfOutlined, FileSearchOutlined, LinkOutlined } from '@ant-design/icons'
+import { FilePdfOutlined, FileSearchOutlined, LinkOutlined, TranslationOutlined } from '@ant-design/icons'
 import type { AnalysisStatusInfo, Paper } from '../types'
 
 export const SOURCE_LABELS: Record<string, string> = {
@@ -23,21 +23,6 @@ const ANALYSIS_STATUS_META: Record<string, { color: string; label: string }> = {
   running: { color: 'processing', label: '分析中' },
   done: { color: 'success', label: '已完成' },
   failed: { color: 'error', label: '失败' },
-}
-
-interface Props {
-  papers: Paper[]
-  loading: boolean
-  selectedIds: string[]
-  onSelect: (ids: string[]) => void
-  statusMap: Record<string, string>
-  errorMap?: Record<string, string>
-  downloadProgressMap?: Record<string, number>
-  showStatus: boolean
-  analysisStatusMap?: Record<string, AnalysisStatusInfo>
-  showAnalysisStatus?: boolean
-  onAnalyze?: (arxivId: string) => void
-  onDelete?: (arxivId: string) => void
 }
 
 export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
@@ -85,7 +70,6 @@ export function basePaperColumns(): NonNullable<TableProps<Paper>['columns']> {
 export function paperActionColumn(
   onAnalyze: (arxivId: string) => void,
   statusMap: Record<string, string>,
-  onDelete?: (arxivId: string) => void,
 ): NonNullable<TableProps<Paper>['columns']>[number] {
   return {
     title: '操作',
@@ -93,7 +77,6 @@ export function paperActionColumn(
     width: 280,
     render: (_: unknown, r: Paper) => {
       const downloaded = statusMap[r.arxiv_id] === 'downloaded'
-      const isArxiv = !r.source || r.source === 'arxiv'
       const isBaidu = r.source === 'baidu_xueshu'
       return (
         <Space size={4}>
@@ -109,18 +92,6 @@ export function paperActionColumn(
               </Button>
             </Tooltip>
           )}
-          {!isArxiv && r.url && (
-            <Button
-              size="small"
-              type="link"
-              icon={<LinkOutlined />}
-              href={r.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              查看原文
-            </Button>
-          )}
           {downloaded && (
             <Button
               size="small"
@@ -133,17 +104,86 @@ export function paperActionColumn(
               查看论文
             </Button>
           )}
-          {onDelete && (
-            <Popconfirm title="确定删除该论文？将同时清理本地 PDF。" onConfirm={() => onDelete(r.arxiv_id)}>
-              <Button size="small" danger icon={<DeleteOutlined />}>
-                删除
-              </Button>
-            </Popconfirm>
-          )}
         </Space>
       )
     },
   }
+}
+
+export function paperTranslateColumn(
+  statusMap: Record<string, string>,
+  translateState: Record<string, { progress: number; message: string; phase: 'idle' | 'running' | 'done' }>,
+  onTranslate: (arxivId: string) => void,
+  onViewTranslation: (arxivId: string) => void,
+  translateError: Record<string, string> = {},
+): NonNullable<TableProps<Paper>['columns']>[number] {
+  return {
+    title: '翻译',
+    key: 'translate',
+    width: 150,
+    render: (_: unknown, r: Paper) => {
+      const downloaded = statusMap[r.arxiv_id] === 'downloaded'
+      const state = translateState[r.arxiv_id]
+      if (state?.phase === 'running') {
+        return (
+          <div style={{ minWidth: 120 }}>
+            <Progress percent={state.progress} size="small" />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {state.message}
+            </Typography.Text>
+          </div>
+        )
+      }
+      if (state?.phase === 'done') {
+        return (
+          <Button
+            size="small"
+            type="link"
+            icon={<TranslationOutlined />}
+            onClick={() => onViewTranslation(r.arxiv_id)}
+          >
+            查看翻译
+          </Button>
+        )
+      }
+      const err = translateError[r.arxiv_id]
+      const tooltipText = err
+        ? `上次翻译失败：${err}`
+        : downloaded
+          ? '使用 LLM 翻译论文全文'
+          : '请先下载该论文'
+      return (
+        <Tooltip title={tooltipText}>
+          <Button
+            size="small"
+            icon={<TranslationOutlined />}
+            disabled={!downloaded}
+            onClick={() => onTranslate(r.arxiv_id)}
+          >
+            {err ? '重试翻译' : '翻译'}
+          </Button>
+        </Tooltip>
+      )
+    },
+  }
+}
+
+interface Props {
+  papers: Paper[]
+  loading: boolean
+  selectedIds: string[]
+  onSelect: (ids: string[]) => void
+  statusMap: Record<string, string>
+  errorMap?: Record<string, string>
+  downloadProgressMap?: Record<string, number>
+  showStatus: boolean
+  analysisStatusMap?: Record<string, AnalysisStatusInfo>
+  showAnalysisStatus?: boolean
+  onAnalyze?: (arxivId: string) => void
+  translateState?: Record<string, { progress: number; message: string; phase: 'idle' | 'running' | 'done' }>
+  translateError?: Record<string, string>
+  onTranslate?: (arxivId: string) => void
+  onViewTranslation?: (arxivId: string) => void
 }
 
 export default function PaperTable({
@@ -156,9 +196,12 @@ export default function PaperTable({
   downloadProgressMap = {},
   showStatus,
   analysisStatusMap = {},
-  showAnalysisStatus = false,
+  showAnalysisStatus,
   onAnalyze,
-  onDelete,
+  translateState,
+  translateError = {},
+  onTranslate,
+  onViewTranslation,
 }: Props) {
   const columns = basePaperColumns()
 
@@ -218,7 +261,19 @@ export default function PaperTable({
   }
 
   if (onAnalyze) {
-    columns.push(paperActionColumn(onAnalyze, statusMap, onDelete))
+    columns.push(paperActionColumn(onAnalyze, statusMap))
+  }
+
+  if (onTranslate && onViewTranslation) {
+    columns.push(
+      paperTranslateColumn(
+        statusMap,
+        translateState ?? {},
+        onTranslate,
+        onViewTranslation,
+        translateError,
+      ),
+    )
   }
 
   return (
