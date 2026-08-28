@@ -1,5 +1,9 @@
 # openlab
 
+<p align="center">
+  <img src="docs/logo.png" alt="openlab logo" width="180" />
+</p>
+
 [简体中文](README.md) | **English**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

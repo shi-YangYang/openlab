@@ -122,6 +122,18 @@ class RunExperimentArgs(BaseModel):
     server_id: str = Field(..., description="服务器 id")
 
 
+class AnalysisIdArgs(BaseModel):
+    arxiv_id: str = Field(..., description="论文 arxiv_id")
+
+
+class ExperimentIdArgs(BaseModel):
+    experiment_id: int = Field(..., description="实验方案 id")
+
+
+class PlatformArgs(BaseModel):
+    platform: str = Field(..., description="平台名（baidu_xueshu / cnki）")
+
+
 class GetExperimentRunStatusArgs(BaseModel):
     run_id: int = Field(..., description="实验运行记录 id")
 
@@ -437,7 +449,75 @@ async def list_experiments() -> List[Dict[str, Any]]:
     return database.list_experiments()
 
 
+async def get_analysis_result(arxiv_id: str) -> Dict[str, Any]:
+    """Return the stored analysis for one paper."""
+    record = database.get_analysis(arxiv_id)
+    if record is None:
+        return {"error": f"No analysis for {arxiv_id}"}
+    return record
+
+
+async def get_experiment_plan(experiment_id: int) -> Dict[str, Any]:
+    """Return one experiment plan record (hypothesis/goal/datasets...)."""
+    record = database.get_experiment(experiment_id)
+    if record is None:
+        return {"error": f"Experiment not found: {experiment_id}"}
+    return record
+
+
+async def delete_paper_record(arxiv_id: str) -> Dict[str, Any]:
+    """Delete a paper, its analysis and the local PDF. Dangerous."""
+    ok = database.delete_paper(arxiv_id)
+    if not ok:
+        return {"error": f"Paper not found: {arxiv_id}"}
+    from .. import downloader
+
+    pdf = downloader.settings.papers_dir / f"{arxiv_id}.pdf"
+    pdf.unlink(missing_ok=True)
+    return {"message": f"已删除论文 {arxiv_id} 及本地 PDF"}
+
+
+async def list_platforms() -> List[Dict[str, Any]]:
+    from ..platforms import sessions as platform_sessions
+
+    return [
+        {"platform": p, "state": s} for p, s in platform_sessions.list_states()
+    ]
+
+
+async def login_platform(platform: str) -> Dict[str, Any]:
+    """Open a real browser for manual login and save the session. Dangerous."""
+    import threading
+
+    from ..platforms import sessions as platform_sessions
+    from ..platforms import browser, sessions
+
+    supported = sessions.SUPPORTED_PLATFORMS
+    if platform not in supported:
+        return {"error": f"不支持的平台: {platform}，可选: {supported}"}
+    if platform_sessions.get_state(platform) == platform_sessions.LOGGING_IN:
+        return {"message": f"{platform} 正在登录中，请勿重复发起"}
+    platform_sessions.set_state(platform, platform_sessions.LOGGING_IN)
+    threading.Thread(target=browser.run_login, args=(platform,), daemon=True).start()
+    return {"message": f"已打开浏览器进行 {platform} 登录，完成后系统会自动检测并保存登录态"}
+
+
+async def export_analysis_markdown(arxiv_id: str) -> Dict[str, Any]:
+    """Export one analysis as markdown text."""
+    from .. import export as export_module
+
+    record = database.get_analysis(arxiv_id)
+    if record is None or record.get("content") is None:
+        return {"error": f"No analysis for {arxiv_id}"}
+    paper = database.get_paper(arxiv_id) or {"arxiv_id": arxiv_id, "title": arxiv_id}
+    return {
+        "markdown": export_module.analysis_to_markdown(record["content"], paper),
+        "filename": f"{arxiv_id}-analysis.md",
+    }
+
+
 async def create_server(
+
     name: str,
     host: str,
     username: str,
@@ -695,6 +775,44 @@ TOOLS: List[StructuredTool] = [
         "stop_experiment_run",
         "终止一次正在运行的实验（终止远端进程并标记停止）。危险操作，执行前需用户确认。",
         GetExperimentRunStatusArgs,
+        dangerous=True,
+    ),
+    _tool(
+        get_analysis_result,
+        "get_analysis_result",
+        "查询某篇论文的结构化分析结果（研究问题/方法/结论/实验维度）。",
+        AnalysisIdArgs,
+    ),
+    _tool(
+        export_analysis_markdown,
+        "export_analysis_markdown",
+        "把某篇论文的分析结果导出为 Markdown 文本。",
+        AnalysisIdArgs,
+    ),
+    _tool(
+        get_experiment_plan,
+        "get_experiment_plan",
+        "查询某个实验方案的完整内容（假设/目标/数据集/基线/指标）。",
+        ExperimentIdArgs,
+    ),
+    _tool(
+        delete_paper_record,
+        "delete_paper_record",
+        "删除一篇论文（含其分析与本地 PDF）。危险操作，执行前需用户确认。",
+        AnalysisIdArgs,
+        dangerous=True,
+    ),
+    _tool(
+        list_platforms,
+        "list_platforms",
+        "列出百度学术/知网等平台的登录状态，只读。",
+        NoArgs,
+    ),
+    _tool(
+        login_platform,
+        "login_platform",
+        "打开真实浏览器引导用户完成平台登录并保存登录态。危险操作，执行前需用户确认。",
+        PlatformArgs,
         dangerous=True,
     ),
 ]
