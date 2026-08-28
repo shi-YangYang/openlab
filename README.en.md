@@ -50,7 +50,7 @@ Researchers burn enormous time on repetitive work: searching literature, downloa
 1. **Literature mining** — search arXiv / Semantic Scholar / Baidu Xueshu / CNKI, download PDFs with visible progress, or upload your own.
 2. **Paper understanding** — LLM-based structured analysis (problem/method/results/experiments), multi-paper comparative reviews.
 3. **Hypothesis generation** — propose innovation points from selected papers, convert them into structured experiment plans in one click.
-4. **Deployment** — SSH server management, git clone/SFTP deployment, GPU monitoring, interactive web terminal.
+4. **Deployment & execution** — one-click experiment execution on remote servers (env setup → background training → live logs), plus SSH management, GPU monitoring and web terminal.
 5. **The Agent ties it all together** — state your research goal in natural language and the agent autonomously orchestrates every capability above.
 
 The project follows spec-driven development (SDD) with a multi-agent workflow; the full evolution log lives in [specs/](specs/) and conventions in [AGENTS.md](AGENTS.md).
@@ -102,7 +102,9 @@ Open <http://localhost:5174> and get started:
 2. **Search literature**: use "直接搜索" (submit query as-is) or "AI 智能搜索" (LLM rewrites your topic into a precise query); select platforms and hit search, then batch-download results.
 3. **Analyze papers**: click "分析" on downloaded papers to open the analysis page with structured results and Markdown export; multi-select for comparative reviews or innovation points.
 4. **Use the Agent**: type a goal like “search attention-mechanism papers, download and analyze the top 2”; replies stream token by token, dangerous actions ask for confirmation in a modal, and long conversations are auto-compacted near the context limit.
-5. **Connect servers** (optional): add SSH credentials → test connection → clone/upload code → view GPU monitoring or open the web terminal.
+5. **Generate experiment plans**: open an innovation record in history and click its experiment action; a structured plan (hypothesis/goal/datasets/baselines/metrics) is generated one-to-one.
+6. **Run experiments**: in experiment-plan history click “执行” → pick a server → (edit step commands) → start. The pipeline runs sync-code → env-setup → background training with the training log streaming live; failures retry once then pause for manual fix (edit-retry / skip / abort). Or let the Agent drive the whole thing with one sentence.
+7. **Connect servers** (optional): add SSH credentials → test connection → clone/upload code → view GPU monitoring or open the web terminal.
 
 > If your machine cannot reach arXiv / Semantic Scholar directly (search failures or stuck downloads), set a proxy under Settings → "网络代理" (e.g. Clash's `127.0.0.1:7897`). Takes effect immediately after saving.
 
@@ -117,7 +119,8 @@ Open <http://localhost:5174> and get started:
 
 ### LLM analysis
 
-- Per-paper four-dimension structured analysis, multi-paper comparative review, innovation points, experiment plans — bilingual (zh/en) with Markdown export.
+- Per-paper four-dimension structured analysis and multi-paper comparative review, bilingual (zh/en) with Markdown export.
+- Innovation-point design with per-point one-to-one structured experiment-plan generation.
 - Model config groups: manage multiple platform groups (OpenAI / DeepSeek / DashScope / SiliconFlow / Zhipu GLM / Moonshot Kimi…) and switch the active one anytime.
 - Per-model context length and reasoning-effort options (built-in dictionary auto-fills common values when fetching models; always editable).
 
@@ -126,10 +129,18 @@ Open <http://localhost:5174> and get started:
 - WebSocket streaming chat: token-level output, real-time tool status, zero polling.
 - Visual tool calls: collapsible parameter/result cards; failed calls expand by default.
 - Full lifecycle control: one-click stop mid-run; exponential-backoff auto-reconnect on disconnect.
-- ~15 built-in tools covering literature retrieval, analysis, innovation, experiments, server management and command execution; dangerous operations force human approval.
+- 32 built-in tools covering literature retrieval, analysis, innovation, experiment execution, server management, platform login, command and code execution; dangerous operations force human approval.
 - Automatic context compaction: history is summarized when usage crosses 80% of the model window, keeping long tasks alive.
 - SQLite-persisted sessions: multi-session management, rename, Markdown export, message copy.
 - Live context-usage ring that turns amber past the warning threshold.
+
+### Automated experiment execution (dual-track)
+
+- **Manual mode**: an execution panel drives the pipeline step by step (sync code → env setup → background training launch → output monitoring); every command is editable and skippable, training logs stream line-by-line with keyword filter and copy/download.
+- **Agent mode**: start with one sentence (e.g. “run experiment plan yy on server xx”); the LLM derives env-setup and launch commands from the plan, asks for approval, then executes and reports progress on demand.
+- Failure handling: each step retries once automatically, then pauses for human resolution (edit-and-retry / skip / abort).
+- Process management: training runs via nohup with recorded PID; one-click stop (SIGTERM→SIGKILL) prevents runaway GPU usage; completion converges automatically with the full log persisted.
+- Run history persisted with status/duration/error and log replay.
 
 ### SSH server automation
 
@@ -154,8 +165,9 @@ Open <http://localhost:5174> and get started:
 frontend (React)  ──HTTP──▶  backend (FastAPI)
        │                          │
        ├── WebSocket ──▶ Agent streaming loop (LangChain astream)
-       │                    ├─ tools: search/download/analysis/innovation/experiment/SSH/sandbox
+       │                    ├─ tools: search/download/analysis/innovation/experiment-execution/SSH/sandbox
        │                    └─ session persistence (SQLite)
+       ├── WebSocket ──▶ Experiment pipeline (step state machine + live logs)
        └── WebSocket ──▶ Web terminal (paramiko PTY)
 ```
 
@@ -174,7 +186,8 @@ Backend defaults to port 8001. Core endpoints:
 | POST | `/api/llm/test` · `/api/llm/models` | Connectivity test / list models |
 | POST | `/api/analyze/{id}` · `/api/analyze/batch` | Single/batch paper analysis |
 | POST | `/api/review` | Comparative review |
-| POST/GET | `/api/innovations` · `/api/experiments` | Innovation / experiment generation & history |
+| POST/GET | `/api/innovations` · `/api/experiments` | Innovation / experiment-plan generation & history (plans map 1:1 from innovation points) |
+| CRUD+WS | `/api/experiment-runs*` | Experiment runs (create/start/live logs/retry/stop) |
 | CRUD | `/api/servers/*` | Server management & deployment |
 | POST | `/api/servers/{id}/monitor` | GPU/CPU/memory/disk monitoring |
 | WS | `/api/servers/{id}/terminal` | Web terminal |
