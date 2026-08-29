@@ -480,3 +480,21 @@ export async function renameAgentSession(id: string, title: string): Promise<Age
 export async function deleteAgentSession(id: string): Promise<void> {
   return del(`/agent/sessions/${id}`)
 }
+
+export async function uploadAgentAttachment(
+  sessionId: string,
+  file: File,
+  path: string,
+): Promise<{ path: string; size: number }> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('path', path)
+  const res = await fetch(
+    `${BASE}/agent/sessions/${encodeURIComponent(sessionId)}/attachments`,
+    { method: 'POST', body: form },
+  )
+  if (!res.ok) {
+    await throwForStatus(res)
+  }
+  return res.json()
+}

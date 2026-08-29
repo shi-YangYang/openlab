@@ -4,10 +4,12 @@ import {
   App as AntApp,
   Button,
   Collapse,
+  Divider,
   Empty,
   Input,
   Modal,
   Popconfirm,
+  Popover,
   Progress,
   Select,
   Space,
@@ -21,6 +23,8 @@ import {
   DeleteOutlined,
   EditOutlined,
   ExportOutlined,
+  FileImageOutlined,
+  FileOutlined,
   PlusOutlined,
   RobotOutlined,
   SendOutlined,
@@ -35,6 +39,7 @@ import {
   getLlmConfig,
   listAgentSessions,
   renameAgentSession,
+  uploadAgentAttachment,
 } from '../api'
 import { useAgentChannel } from '../hooks/useAgentChannel'
 import type {
@@ -52,6 +57,7 @@ interface Turn {
   text: string
   toolCalls: AgentToolCall[]
   time?: string
+  files?: string[]
 }
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
@@ -140,16 +146,26 @@ export default function AgentPage() {
   const [groupDefaults, setGroupDefaults] = useState<{ model: string }>({
     model: '',
   })
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
 
   const currentIdRef = useRef<string | null>(null)
   const compactTimerRef = useRef<number | null>(null)
   const wasDisconnectedRef = useRef(false)
   const renamingRef = useRef<string | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const dirInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     currentIdRef.current = currentId
   }, [currentId])
+
+  const attachDirectoryInput = useCallback((el: HTMLInputElement | null) => {
+    dirInputRef.current = el
+    if (el) el.setAttribute('webkitdirectory', '')
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -414,6 +430,7 @@ export default function AgentPage() {
     setPendingApproval(null)
     setMessages([])
     setUsage(null)
+    setUploadedFiles([])
     setCurrentId(id)
     void refreshDetail(id)
   }
@@ -424,19 +441,29 @@ export default function AgentPage() {
     setMessages([])
     setUsage(null)
     setInput('')
+    setUploadedFiles([])
     resetSelections()
     setCurrentId(null)
   }
 
   const handleSend = () => {
     const text = input.trim()
-    if (!text || loading || running || offline) return
+    if (!text || loading || running || offline || uploading) return
+    const attachments = [...uploadedFiles]
+    const notice =
+      attachments.length > 0
+        ? `${text}\n\n[附件]\n${attachments.map((p) => `- ${p}`).join('\n')}`
+        : text
     setInput('')
+    setUploadedFiles([])
     setStatusLabel('')
     setLoading(true)
     const hhmm = hhmmNow()
-    setMessages((prev) => [...prev, { role: 'user', text, toolCalls: [], time: hhmm }])
-    const ok = channel.sendChat(text, { model, reasoningEffort })
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', text, toolCalls: [], time: hhmm, files: attachments },
+    ])
+    const ok = channel.sendChat(notice, { model, reasoningEffort })
     if (!ok) {
       message.error('连接未就绪，请稍后再试')
       setLoading(false)
@@ -457,6 +484,31 @@ export default function AgentPage() {
     } else {
       message.error('发送停止指令失败')
     }
+  }
+
+  const handleUploadFiles = async (files: File[]) => {
+    if (files.length === 0) return
+    const sid = currentIdRef.current
+    if (!sid) {
+      message.warning('请先发送消息创建会话')
+      return
+    }
+    const paths: string[] = []
+    setUploading(true)
+    try {
+      for (const file of files) {
+        const rel = file.webkitRelativePath || file.name
+        const result = await uploadAgentAttachment(sid, file, rel)
+        paths.push(result.path)
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '上传失败')
+      return
+    } finally {
+      setUploading(false)
+    }
+    setUploadedFiles((prev) => Array.from(new Set([...prev, ...paths])))
+    message.success(`已上传 ${paths.length} 个文件，发送消息时将一并提交给 Agent`)
   }
 
   const respondApproval = (approve: boolean) => {
@@ -520,6 +572,7 @@ export default function AgentPage() {
         setPendingApproval(null)
         setMessages([])
         setUsage(null)
+        setUploadedFiles([])
         setCurrentId(null)
         if (remaining.length > 0) handleSelect(remaining[0].id)
       }
@@ -558,9 +611,43 @@ export default function AgentPage() {
     },
   }
 
+  const uploadMenu = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 128 }}>
+      <Button size="small" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+        添加文件 / 文件夹
+      </Button>
+      <Divider style={{ margin: '4px 0' }} />
+      <Typography.Text type="secondary" style={{ fontSize: 12, textAlign: 'center' }}>
+        更多功能开发中…
+      </Typography.Text>
+    </div>
+  )
+
   return (
     <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
       <style>{COPY_STYLE_TAG}</style>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? [])
+          e.target.value = ''
+          void handleUploadFiles(files)
+        }}
+      />
+      <input
+        ref={attachDirectoryInput}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? [])
+          e.target.value = ''
+          void handleUploadFiles(files)
+        }}
+      />
       <div
         style={{
           width: 240,
@@ -734,6 +821,35 @@ export default function AgentPage() {
                       }}
                     >
                       {turn.text}
+                      {turn.files && turn.files.length > 0 && (
+                        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {turn.files.map((f) => {
+                            const isImg = /\.(png|jpe?g|gif|webp|bmp)$/i.test(f)
+                            return (
+                              <a
+                                key={f}
+                                href={`/api/agent/sessions/${currentId}/attachments/${encodeURIComponent(f)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  background: 'rgba(255,255,255,0.2)',
+                                  borderRadius: 6,
+                                  padding: '4px 8px',
+                                  color: '#fff',
+                                  fontSize: 12,
+                                  width: 'fit-content',
+                                }}
+                              >
+                                {isImg ? <FileImageOutlined /> : <FileOutlined />}
+                                <span>{f.split('/').pop()}</span>
+                              </a>
+                            )
+                          })}
+                        </div>
+                      )}
                       {turn.time && (
                         <div style={{ textAlign: 'right', marginTop: 2 }}>
                           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -845,23 +961,63 @@ export default function AgentPage() {
         )}
 
         <div style={{ padding: 16 }}>
-          <Input.TextArea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onPressEnter={(e) => {
-              if (!e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
+          {uploadedFiles.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+              {uploadedFiles.map((p) => (
+                <Tag
+                  key={p}
+                  closable
+                  color={/\.(png|jpe?g|gif|webp|bmp)$/i.test(p) ? 'cyan' : undefined}
+                  onClose={() => setUploadedFiles((prev) => prev.filter((f) => f !== p))}
+                >
+                  {p}
+                </Tag>
+              ))}
+            </div>
+          )}
+          <div
+            style={{
+              border: dragOver ? '2px dashed #1677ff' : '2px solid transparent',
+              borderRadius: 6,
+              padding: dragOver ? 4 : 6,
+              background: dragOver ? 'rgba(22,119,255,0.06)' : undefined,
+              transition: 'border-color 0.2s, background 0.2s',
             }}
-            placeholder={
-              connectionState === 'reconnecting' || connectionState === 'closed'
-                ? '连接不可用，等待恢复…'
-                : '输入目标后按 Enter 发送（Shift+Enter 换行），中断后可继续发送新指令'
-            }
-            autoSize={{ minRows: 4, maxRows: 10 }}
-            disabled={offline || running || !!pendingApproval}
-          />
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDragOver(true)
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault()
+              setDragOver(false)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDragOver(false)
+              const dropped = Array.from(e.dataTransfer.files ?? [])
+              if (dropped.length) void handleUploadFiles(dropped)
+            }}
+          >
+            <Input.TextArea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onPressEnter={(e) => {
+                if (!e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+              placeholder={
+                connectionState === 'reconnecting' || connectionState === 'closed'
+                  ? '连接不可用，等待恢复…'
+                  : dragOver
+                    ? '松开鼠标即可添加文件'
+                    : '输入目标后按 Enter 发送（Shift+Enter 换行），也可拖入文件'
+              }
+              autoSize={{ minRows: 4, maxRows: 10 }}
+              disabled={offline || running || !!pendingApproval}
+            />
+          </div>
           <div
             style={{
               display: 'flex',
@@ -871,6 +1027,9 @@ export default function AgentPage() {
               flexWrap: 'wrap',
             }}
           >
+            <Popover content={uploadMenu} trigger="click">
+              <Button size="small" icon={<PlusOutlined />} loading={uploading} />
+            </Popover>
             <Space size={4} wrap>
               <Select
                 size="small"
@@ -922,7 +1081,7 @@ export default function AgentPage() {
             </div>
             <div style={{ flex: 1 }} />
             {running && !offline ? (
-              <Button danger icon={<StopOutlined />} onClick={handleStop}>
+              <Button danger icon={<StopOutlined />} onClick={handleStop} disabled={uploading}>
                 停止
               </Button>
             ) : (
@@ -931,7 +1090,7 @@ export default function AgentPage() {
                 icon={<SendOutlined />}
                 onClick={handleSend}
                 loading={loading}
-                disabled={offline || !!pendingApproval}
+                disabled={offline || !!pendingApproval || uploading}
               >
                 发送
               </Button>

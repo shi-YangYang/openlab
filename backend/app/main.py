@@ -17,6 +17,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -1584,3 +1585,47 @@ async def delete_agent_session(session_id: str) -> dict:
     if not delete_session(session_id):
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
     return {"status": "ok"}
+
+
+@app.get("/api/agent/sessions/{session_id}/attachments/{attachment_path:path}")
+async def get_agent_attachment(session_id: str, attachment_path: str) -> FileResponse:
+    """Serve a sandbox attachment file (for the UI file chips in chat)."""
+    from .agent.sandbox import sandbox_dir
+
+    root = sandbox_dir(session_id)
+    full = (root / attachment_path).resolve()
+    if not full.is_relative_to(root.resolve()):
+        raise HTTPException(status_code=403, detail="非法路径")
+    if not full.is_file():
+        raise HTTPException(status_code=404, detail=f"文件不存在: {attachment_path}")
+    media = "application/octet-stream"
+    lower = attachment_path.lower()
+    if lower.endswith(".png"):
+        media = "image/png"
+    elif lower.endswith((".jpg", ".jpeg")):
+        media = "image/jpeg"
+    elif lower.endswith(".gif"):
+        media = "image/gif"
+    elif lower.endswith(".webp"):
+        media = "image/webp"
+    elif lower.endswith(".pdf"):
+        media = "application/pdf"
+    elif lower.endswith((".py", ".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".log", ".sh")):
+        media = "text/plain; charset=utf-8"
+    return FileResponse(full, media_type=media, filename=attachment_path.rsplit("/", 1)[-1])
+
+
+@app.post("/api/agent/sessions/{session_id}/attachments")
+async def upload_agent_attachment(
+    session_id: str,
+    file: UploadFile = File(...),
+    path: str = Form(""),
+) -> dict:
+    if get_session_detail(session_id) is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    rel = _safe_rel_path(path or file.filename or "attachment")
+    target = settings.data_dir / "sandbox" / session_id / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    return {"path": rel, "size": target.stat().st_size}
