@@ -2,6 +2,7 @@ import { Button, Progress, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { FilePdfOutlined, FileSearchOutlined, LinkOutlined, TranslationOutlined } from '@ant-design/icons'
 import type { AnalysisStatusInfo, Paper } from '../types'
+import { apiUrl } from '../api'
 
 export const SOURCE_LABELS: Record<string, string> = {
   arxiv: 'arXiv',
@@ -97,7 +98,7 @@ export function paperActionColumn(
               size="small"
               type="link"
               icon={<FilePdfOutlined />}
-              href={`/api/papers/${r.arxiv_id}/pdf`}
+              href={apiUrl(`/api/papers/${r.arxiv_id}/pdf`)}
               target="_blank"
               rel="noreferrer"
             >

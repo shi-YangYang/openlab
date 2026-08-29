@@ -2,6 +2,23 @@
   min-height: 100vh;
 }
 
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-drag button,
+.titlebar-drag a {
+  -webkit-app-region: no-drag;
+}
+
+.ant-card > .ant-card-body {
+  padding: 12px;
+}
+
+.ant-card .ant-card-extra {
+  padding-top: 8px;
+}
+
 .ant-layout {
   min-height: 100vh;
 }

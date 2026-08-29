@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntApp, Button, Card, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
 import { BulbOutlined, DeleteOutlined, DownloadOutlined, FilePdfOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, TranslationOutlined, UploadOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
-import { getLlmConfig, getTranslation, getTranslationProgress, startTranslation } from '../api'
+import { apiUrl, getLlmConfig, getTranslation, getTranslationProgress, startTranslation } from '../api'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
 interface Props {
@@ -256,7 +256,7 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
           <Button
             type="primary"
             icon={<FilePdfOutlined />}
-            href={`/api/papers/${encodeURIComponent(viewTranslation.arxivId)}/translation/pdf`}
+            href={apiUrl(`/api/papers/${encodeURIComponent(viewTranslation.arxivId)}/translation/pdf`)}
             target="_blank"
           >
             打开翻译 PDF

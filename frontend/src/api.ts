@@ -34,9 +34,22 @@ import type {
   UploadResult,
 } from './types'
 
-const BASE = '/api'
+// In Electron the page is loaded via file://, so relative "/api" paths and
+// window.location.host do not resolve to the backend. The preload script
+// exposes the backend origin (http://localhost:{port}); in the browser it is
+// undefined and we keep the relative paths served by the vite proxy.
+const API_ORIGIN = window.electronAPI?.apiOrigin ?? ''
+
+const BASE = `${API_ORIGIN}/api`
+
+export function apiUrl(path: string): string {
+  return `${API_ORIGIN}${path}`
+}
 
 export function terminalWsUrl(path: string): string {
+  if (API_ORIGIN) {
+    return `${API_ORIGIN.replace(/^http/, 'ws')}${path}`
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   return `${protocol}://${window.location.host}${path}`
 }

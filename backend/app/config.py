@@ -4,11 +4,17 @@ All configuration is loaded from environment variables (optionally from a
 `.env` file placed in the backend directory). No secrets are hardcoded here.
 """
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# PyInstaller frozen mode: data directory sits alongside the exe,
+# not inside the temporary _MEIPASS extraction dir.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 

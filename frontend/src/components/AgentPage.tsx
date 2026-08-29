@@ -33,6 +33,7 @@ import {
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
+  apiUrl,
   deleteAgentSession,
   exportAgentSession,
   getAgentSession,
@@ -624,7 +625,7 @@ export default function AgentPage() {
   )
 
   return (
-    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', alignItems: 'stretch', height: 'calc(100vh - 36px)', overflow: 'hidden' }}>
       <style>{COPY_STYLE_TAG}</style>
       <input
         ref={fileInputRef}
@@ -657,12 +658,12 @@ export default function AgentPage() {
           borderRadius: 8,
         }}
       >
-        <div style={{ padding: 12, borderBottom: '1px solid #f0f0f0' }}>
+        <div style={{ padding: '12px 12px 12px 0', borderBottom: '1px solid #f0f0f0' }}>
           <Button block icon={<PlusOutlined />} onClick={handleNew}>
             新建会话
           </Button>
         </div>
-        <div style={{ maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
           {sessionsLoading && sessions.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 24 }}>
               <Spin size="small" />
@@ -758,7 +759,7 @@ export default function AgentPage() {
         </div>
       </div>
 
-      <div style={{ flex: 1, minWidth: 0, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 8 }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 8, display: 'flex', flexDirection: 'column' }}>
         {(connectionState === 'reconnecting' || connectionState === 'closed') && (
           <Alert
             type={connectionState === 'closed' ? 'error' : 'warning'}
@@ -783,9 +784,10 @@ export default function AgentPage() {
         )}
         <div
           style={{
-            height: 'calc(100vh - 240px)',
+            flex: 1,
+            minHeight: 0,
             overflowY: 'auto',
-            padding: 16,
+            padding: '16px 16px 16px 0',
             background: '#fafafa',
           }}
         >
@@ -828,7 +830,7 @@ export default function AgentPage() {
                             return (
                               <a
                                 key={f}
-                                href={`/api/agent/sessions/${currentId}/attachments/${encodeURIComponent(f)}`}
+                                href={apiUrl(`/api/agent/sessions/${currentId}/attachments/${encodeURIComponent(f)}`)}
                                 target="_blank"
                                 rel="noreferrer"
                                 style={{
@@ -960,7 +962,7 @@ export default function AgentPage() {
           />
         )}
 
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: '16px 16px 8px 0' }}>
           {uploadedFiles.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
               {uploadedFiles.map((p) => (

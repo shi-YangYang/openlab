@@ -2,13 +2,21 @@
   "name": "openlab",
   "private": true,
   "version": "0.1.0",
-  "description": "openlab 科研 Agent 框架 —— 根目录脚本（concurrently 合并输出启动前后端）",
+  "description": "openlab 科研 Agent 框架",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently --kill-others --names backend,frontend --prefix-colors blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && .venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port %OPENLAB_PORT%",
-    "dev:frontend": "cd frontend && npm run dev"
+    "dev:frontend": "cd frontend && npm run dev",
+    "electron:dev": "concurrently --kill-others --names frontend,electron --prefix-colors green,yellow \"npm run dev:frontend\" \"npm run electron:compile && electron .\"",
+    "electron:build": "npm run pyinstaller && npm run frontend:build && npm run electron:compile && electron-builder --win",
+    "pyinstaller": "cd backend && .venv\\Scripts\\python.exe -m PyInstaller openlab_backend.spec --noconfirm",
+    "frontend:build": "cd frontend && npm run build",
+    "electron:compile": "frontend\\node_modules\\.bin\\tsc.cmd -p electron/tsconfig.json"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3"
   }
 }

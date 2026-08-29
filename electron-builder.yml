@@ -1,0 +1,21 @@
+appId: com.shi-yangyang.openlab
+productName: openlab
+icon: docs/logo-256.ico
+directories:
+  output: frontend/dist_electron
+files:
+  - dist-electron/**/*
+  - frontend/dist/**/*
+extraResources:
+  - from: backend/dist/openlab-backend
+    to: openlab-backend
+win:
+  target:
+    - nsis
+  icon: docs/logo-256.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: openlab

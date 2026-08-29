@@ -25,3 +25,10 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+
+# Electron / PyInstaller build artifacts
+dist-electron/
+dist_electron/
+backend/build/
+backend/dist/
+**/dist_electron*/

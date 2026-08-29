@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { App as AntApp, Card, Collapse, Layout, Menu, Spin, Typography } from 'antd'
+const { Sider } = Layout
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   BookOutlined,
@@ -11,6 +12,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
+import TitleBar from './components/TitleBar'
 import SearchForm, { SearchFormValues } from './components/SearchForm'
 import PaperWorkspace from './components/PaperWorkspace'
 import SearchHistoryList from './components/SearchHistoryList'
@@ -232,49 +234,53 @@ export default function App() {
   )
 
   return (
-    <Layout>
-      <Header style={{ display: 'flex', alignItems: 'center' }}>
-        <div style={{ color: '#fff', fontSize: 18, fontWeight: 600, marginRight: 32, whiteSpace: 'nowrap' }}>
-          openlab
+    <Layout style={{ minHeight: '100vh' }}>
+      <Sider width={160} style={{ background: '#001529', position: 'fixed', height: '100vh', zIndex: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 16px 12px' }}>
+          <img src="logo.png" alt="openlab" style={{ width: 28, height: 28 }} />
+          <Typography.Text strong style={{ color: '#fff', fontSize: 16 }}>
+            openlab
+          </Typography.Text>
         </div>
         <Menu
           theme="dark"
-          mode="horizontal"
+          mode="inline"
           selectedKeys={[selectedKey]}
           items={MENU_ITEMS}
           onClick={(e) => navigate(`/${e.key}`)}
-          builtinPlacements={{
-            bottomLeft: { points: ['tc', 'bc'], overflow: { adjustX: 1, adjustY: 1 } },
-          }}
-          style={{ flex: 1, minWidth: 0 }}
+          style={{ borderInlineEnd: 'none' }}
         />
-      </Header>
-      <Content style={{ maxWidth: 1600, width: '100%', margin: '0 auto', padding: 24 }}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/search" replace />} />
-          <Route path="/search" element={searchPage} />
-          <Route path="/library" element={libraryPage} />
-          <Route path="/history" element={<Navigate to="/history/search" replace />} />
-          <Route path="/history/search" element={<SearchHistoryList onRestore={handleRestore} />} />
-          <Route path="/history/innovation" element={<InnovationHistoryList onAnalyze={openAnalyze} />} />
-          <Route path="/history/experiment" element={<ExperimentHistoryList />} />
-          <Route path="/servers" element={<ServersPage onOpenDetail={(s) => navigate(`/servers/${s.id}`)} />} />
-          <Route path="/servers/:serverId" element={<ServerDetailRoute />} />
-          <Route path="/papers/:arxivId/analysis" element={<PaperAnalysisPage />} />
-          <Route path="/papers/review" element={<ReviewPage />} />
-          <Route path="/papers/innovation" element={<InnovationPage />} />
-          <Route path="/papers/experiment" element={<ExperimentPage />} />
-          <Route path="/agent" element={<AgentPage />} />
-          <Route path="/settings" element={settingsPage} />
-          <Route path="*" element={<Navigate to="/search" replace />} />
-        </Routes>
-
-        <UploadPdfModal
-          open={uploadOpen}
-          onClose={() => setUploadOpen(false)}
-          onSaved={() => void libraryWorkspace.loadLibrary()}
-        />
-      </Content>
+      </Sider>
+      <Layout style={{ marginLeft: 160, background: '#fff', height: 'calc(100vh - 36px)' }}>
+        <TitleBar />
+        <Content style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
+          <div style={{ width: '100%' }}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/search" replace />} />
+              <Route path="/search" element={searchPage} />
+              <Route path="/library" element={libraryPage} />
+              <Route path="/history" element={<Navigate to="/history/search" replace />} />
+              <Route path="/history/search" element={<SearchHistoryList onRestore={handleRestore} />} />
+              <Route path="/history/innovation" element={<InnovationHistoryList onAnalyze={openAnalyze} />} />
+              <Route path="/history/experiment" element={<ExperimentHistoryList />} />
+              <Route path="/servers" element={<ServersPage onOpenDetail={(s) => navigate(`/servers/${s.id}`)} />} />
+              <Route path="/servers/:serverId" element={<ServerDetailRoute />} />
+              <Route path="/papers/:arxivId/analysis" element={<PaperAnalysisPage />} />
+              <Route path="/papers/review" element={<ReviewPage />} />
+              <Route path="/papers/innovation" element={<InnovationPage />} />
+              <Route path="/papers/experiment" element={<ExperimentPage />} />
+              <Route path="/agent" element={<AgentPage />} />
+              <Route path="/settings" element={settingsPage} />
+              <Route path="*" element={<Navigate to="/search" replace />} />
+            </Routes>
+          </div>
+          <UploadPdfModal
+            open={uploadOpen}
+            onClose={() => setUploadOpen(false)}
+            onSaved={() => void libraryWorkspace.loadLibrary()}
+          />
+        </Content>
+      </Layout>
     </Layout>
   )
 }
