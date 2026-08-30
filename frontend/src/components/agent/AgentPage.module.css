@@ -83,7 +83,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 16px 16px 0;
+  padding: 16px 16px 16px 16px;
   background: #fafafa;
 }
 
@@ -124,7 +124,9 @@
 .turnToolbar {
   position: absolute;
   top: 100%;
-  margin-top: 2px;
+  left: 0;
+  right: 0;
+  padding-top: 4px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -143,11 +145,11 @@
 }
 
 .turnToolbarEnd {
-  right: 0;
+  justify-content: flex-end;
 }
 
 .turnToolbarStart {
-  left: 0;
+  justify-content: flex-start;
 }
 
 .toolbarModel {
@@ -213,7 +215,7 @@
 
 /* ===== 输入区 ===== */
 .inputArea {
-  padding: 16px 16px 8px 0;
+  padding: 16px 16px 8px 16px;
 }
 
 .filesRow {
