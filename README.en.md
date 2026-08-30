@@ -21,7 +21,7 @@
 
 Open-source research agent framework: literature mining → hypothesis generation → experiment design → SSH deployment, fully automated.
 
-openlab puts the research workflow into a ready-to-use desktop workbench (Electron): multi-platform literature search and download, LLM-powered paper analysis and reviews, innovation-point and experiment-plan generation, plus a streaming conversational agent that orchestrates all of the above on its own — with one-click deployment to remote GPU servers (SSH + web terminal). The backend is bundled into the desktop client via PyInstaller; you can also run it from source.
+openlab puts the research workflow into a ready-to-use desktop workbench (Electron): multi-platform literature search and download, LLM-powered paper analysis and reviews, innovation-point and experiment-plan generation, plus a streaming conversational agent that orchestrates all of the above on its own — with one-click deployment to remote GPU servers (SSH + web terminal).
 
 ## Table of Contents
 
@@ -39,10 +39,9 @@ openlab puts the research workflow into a ready-to-use desktop workbench (Electr
 
 ## Security
 
-- LLM API keys and SSH credentials are stored only in local config files (`backend/data/`, gitignored) — never hardcoded, never committed.
-- Downloaded PDFs, the SQLite database and agent sessions live under `backend/data/` and never enter version control.
-- Dangerous agent operations (remote commands, code execution, etc.) require explicit per-action user approval in the UI; tool outputs are automatically scrubbed of credentials.
-- Never commit `.env` files or real secrets.
+- LLM API keys and SSH credentials never leave your computer.
+- Downloaded PDFs, databases and session records are all stored locally.
+- Dangerous agent operations (remote commands, code execution, etc.) require explicit confirmation in the UI before they run.
 
 ## Background
 
@@ -54,19 +53,15 @@ Researchers burn enormous time on repetitive work: searching literature, downloa
 4. **Deployment & execution** — one-click experiment execution on remote servers (env setup → background training → live logs), plus SSH management, GPU monitoring and web terminal.
 5. **The Agent ties it all together** — state your research goal in natural language and the agent autonomously orchestrates every capability above.
 
-The project follows spec-driven development (SDD) with a multi-agent workflow; the full evolution log lives in [specs/](specs/) and conventions in [AGENTS.md](AGENTS.md).
-
 ## Install
 
-### Option 1: Download the installer (recommended)
+### Download the installer (recommended)
 
-Grab `openlab.Setup.<version>.exe` (Windows x64) from [Releases](https://github.com/shi-YangYang/openlab/releases/latest) and run the setup wizard.
+Download `openlab.Setup.*.exe` (Windows x64) from [Releases](https://github.com/shi-YangYang/openlab/releases/latest) and double-click to install.
 
-- The installer bundles the Python runtime and all backend dependencies via PyInstaller — **no Python / Node.js required**.
-- On launch, the Electron main process spawns the backend automatically with health checks and crash recovery; everything runs locally.
-- Pushing a `v*` tag triggers GitHub Actions to build and publish the matching installer; the release notes list the commits included in that version.
+The installer ships with everything bundled — no Python / Node.js required.
 
-### Option 2: Run from source
+### Run from source
 
 #### Prerequisites
 
@@ -74,16 +69,16 @@ Grab `openlab.Setup.<version>.exe` (Windows x64) from [Releases](https://github.
 - [Node.js](https://nodejs.org/) 18+
 - Windows PowerShell (the one-click script is `.ps1`)
 
-#### One-click start (Electron desktop client)
+#### One-click start
 
 ```powershell
 cd openlab
 .\start.ps1
 ```
 
-The script detects and installs missing dependencies (Python venv, backend pip packages, Node/npm packages, electron), then starts the Electron desktop client (embedded frontend + auto-spawned backend).
+The script detects and installs missing dependencies, then starts the openlab desktop client.
 
-#### Manual install (browser dev mode)
+#### Manual install (dev mode)
 
 ```powershell
 # Backend
@@ -102,13 +97,14 @@ npm run dev                  # http://localhost:5174
 
 ## Usage
 
+For the installed version, just launch it from the desktop shortcut. From source:
+
 ```powershell
-.\start.ps1                  # desktop client, backend 8001
+.\start.ps1                  # start the desktop client
 .\start.ps1 -Port 9000       # custom backend port
-npm run dev                  # dev mode: open http://localhost:5174 in a browser
 ```
 
-The openlab desktop window opens automatically (in dev mode, open <http://localhost:5174> in a browser). Recommended first steps:
+Recommended first steps:
 
 1. **Configure LLM**: Settings → "LLM 配置" → create a config group (pick a platform preset or enter an OpenAI-compatible Base URL + API Key) → fetch models → pick default model & reasoning effort → save. Multiple groups let you switch platforms anytime.
 2. **Search literature**: use "直接搜索" (submit query as-is) or "AI 智能搜索" (LLM rewrites your topic into a precise query); select platforms and hit search, then batch-download results.
@@ -124,9 +120,9 @@ The openlab desktop window opens automatically (in dev mode, open <http://localh
 
 ### Literature search & library
 
-- Concurrent search across four platforms: arXiv, Semantic Scholar (official Graph API with automatic rate-limit retries), Baidu Xueshu, CNKI (browser login sessions).
+- Concurrent search across four platforms: arXiv, Semantic Scholar, Baidu Xueshu, CNKI (browser login sessions).
 - Two modes: direct keyword search and AI topic→query rewriting; result count, category and date filters.
-- Batch PDF downloads with progress bars and status management; local storage, dedup, delete-with-cleanup.
+- Batch PDF downloads with progress bars; local storage with dedup and automatic cleanup on delete.
 - Local PDF upload with automatic metadata/source-link extraction and manual editing.
 
 ### LLM analysis
@@ -134,16 +130,15 @@ The openlab desktop window opens automatically (in dev mode, open <http://localh
 - Per-paper four-dimension structured analysis and multi-paper comparative review, bilingual (zh/en) with Markdown export.
 - Innovation-point design with per-point one-to-one structured experiment-plan generation.
 - Model config groups: manage multiple platform groups (OpenAI / DeepSeek / DashScope / SiliconFlow / Zhipu GLM / Moonshot Kimi…) and switch the active one anytime.
-- Per-model context length and reasoning-effort options (built-in dictionary auto-fills common values when fetching models; always editable).
+- Per-model context length and reasoning-effort settings, with common values auto-filled and always editable.
 
 ### Research agent
 
-- WebSocket streaming chat: token-level output, real-time tool status, zero polling.
-- Visual tool calls: collapsible parameter/result cards; failed calls expand by default.
-- Full lifecycle control: one-click stop mid-run; exponential-backoff auto-reconnect on disconnect.
+- Streaming chat: replies appear word by word; every tool call's parameters and results are viewable in collapsible cards, failures expanded automatically.
+- Always in control: one-click stop mid-run; automatic reconnection on disconnect.
 - 32 built-in tools covering literature retrieval, analysis, innovation, experiment execution, server management, platform login, command and code execution; dangerous operations force human approval.
 - Automatic context compaction: history is summarized when usage crosses 80% of the model window, keeping long tasks alive.
-- SQLite-persisted sessions: multi-session management, rename, Markdown export, message copy.
+- Auto-saved sessions: multi-session management, rename, Markdown export, message copy.
 - Live context-usage ring that turns amber past the warning threshold.
 
 ### Automated experiment execution (dual-track)
@@ -151,15 +146,15 @@ The openlab desktop window opens automatically (in dev mode, open <http://localh
 - **Manual mode**: an execution panel drives the pipeline step by step (sync code → env setup → background training launch → output monitoring); every command is editable and skippable, training logs stream line-by-line with keyword filter and copy/download.
 - **Agent mode**: start with one sentence (e.g. “run experiment plan yy on server xx”); the LLM derives env-setup and launch commands from the plan, asks for approval, then executes and reports progress on demand.
 - Failure handling: each step retries once automatically, then pauses for human resolution (edit-and-retry / skip / abort).
-- Process management: training runs via nohup with recorded PID; one-click stop (SIGTERM→SIGKILL) prevents runaway GPU usage; completion converges automatically with the full log persisted.
-- Run history persisted with status/duration/error and log replay.
+- Training runs in the background and can be stopped with one click to free the GPU; on completion it converges automatically with the full log persisted.
+- Run history with status, duration and log replay.
 
 ### SSH server automation
 
 - Server management (password/key auth), connectivity tests.
 - Deployment via server-side git clone or local file/folder SFTP upload.
 - Structured monitoring: GPU / CPU / memory / disk / processes.
-- In-browser interactive terminal (xterm.js over WebSocket, full TTY).
+- Built-in interactive terminal that feels like a local one.
 
 ## Architecture & Tech Stack
 
@@ -173,7 +168,7 @@ The openlab desktop window opens automatically (in dev mode, open <http://localh
 | Data | SQLite (metadata/history) + local files (PDF/config) |
 | Crawling | httpx (arXiv Atom API / Semantic Scholar Graph API) + Playwright (Baidu/CNKI login sessions) |
 | Remote ops | paramiko (SSH/SFTP) |
-| Packaging | PyInstaller (backend) + electron-builder (NSIS installer), auto-built & published by GitHub Actions on tags |
+| Packaging | PyInstaller (backend) + electron-builder (NSIS installer) |
 
 ```
 Electron main process (spawn backend / health check / crash restart / frameless window)
@@ -230,7 +225,7 @@ Environment variables (fully commented in `.env.example`):
 
 ## Contributing
 
-Issues and feedback are welcome at [GitHub Issues](https://github.com/shi-YangYang/openlab/issues); PRs are accepted. Please read [AGENTS.md](AGENTS.md) first for workflow conventions.
+Issues and feedback are welcome at [GitHub Issues](https://github.com/shi-YangYang/openlab/issues); PRs are accepted. The project follows spec-driven development (SDD) with its full evolution log in [specs/](specs/); please read [AGENTS.md](AGENTS.md) first for workflow conventions.
 
 ## License
 
