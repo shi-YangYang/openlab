@@ -3,7 +3,7 @@
 ## 元信息
 
 - **Spec 编号**：`spec-029-release-version-notes`
-- **状态**：`draft`
+- **状态**：`completed`
 - **创建日期**：2026-08-30
 - **来源**：spec-028 上线后 v0.2.0 Release 暴露的两个问题（用户反馈）
 - **负责人**：协调开发 Agent
