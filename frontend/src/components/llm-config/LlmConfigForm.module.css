@@ -1,0 +1,87 @@
+/* ===== 整体布局 ===== */
+.introText {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.sideColumn {
+  width: 260px;
+  flex-shrink: 0;
+}
+
+.mainColumn {
+  flex: 1;
+  min-width: 0;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+/* ===== 配置组列表 ===== */
+.groupItem {
+  cursor: pointer;
+  border-radius: 4px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.groupItemSelected {
+  background: #e6f4ff;
+}
+
+.defaultModelText {
+  font-size: 12px;
+}
+
+/* ===== 模型列表 ===== */
+.modelsSection {
+  margin-bottom: 16px;
+}
+
+.modelsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.modelRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.modelIdInput {
+  width: 220px;
+}
+
+.contextLengthInput {
+  width: 140px;
+}
+
+.effortsField {
+  flex: 1;
+  min-width: 300px;
+}
+
+.modelDeleteButton {
+  flex-shrink: 0;
+}
+
+/* ===== 操作与测试结果 ===== */
+.actionsRow {
+  margin-bottom: 16px;
+}
+
+.testResult {
+  display: block;
+  margin-top: 12px;
+}

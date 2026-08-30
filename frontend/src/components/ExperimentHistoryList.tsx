@@ -31,7 +31,7 @@ import {
   listExperiments,
 } from '../api'
 import type { ExperimentHistoryItem, ExperimentRecord, ExperimentRun } from '../types'
-import ExperimentRunPanel from './ExperimentRunPanel'
+import ExperimentRunPanel from './experiment-run/ExperimentRunPanel'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
   pending: { color: 'processing', label: '生成中' },
@@ -334,7 +334,7 @@ export default function ExperimentHistoryList() {
             width={720}
           >
             {detailLoading ? (
-              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <div className="page-center">
                 <Spin tip="加载中..." />
               </div>
             ) : detail == null ? null : content && content.length ? (
@@ -403,18 +403,7 @@ export default function ExperimentHistoryList() {
                   {RUN_STATUS_META[runDetail.status]?.label ?? runDetail.status}
                   {runDetail.error ? ` — ${runDetail.error}` : ''}
                 </Typography.Paragraph>
-                <pre
-                  style={{
-                    background: '#1e1e1e',
-                    color: '#d4d4d4',
-                    padding: 12,
-                    borderRadius: 6,
-                    maxHeight: 420,
-                    overflow: 'auto',
-                    fontSize: 12,
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
+                <pre className="log-area" style={{ maxHeight: 420, overflow: 'auto' }}>
                   {runDetail.log_tail || '（无日志）'}
                 </pre>
               </>

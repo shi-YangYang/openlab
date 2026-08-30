@@ -5,6 +5,7 @@ import { DownloadOutlined, ExperimentOutlined } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { createExperiment, exportExperimentMarkdown, getExperiment } from '../api'
 import type { AnalysisLanguage, ExperimentRecord } from '../types'
+import styles from './ExperimentPage.module.css'
 
 function downloadText(text: string, filename: string) {
   const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
@@ -87,7 +88,7 @@ export default function ExperimentPage() {
   const crumbRoot = { label: '创新点历史', path: '/history/innovation' }
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space direction="vertical" size={16} className={styles.fullWidth}>
       <Breadcrumb
         items={[
           {
@@ -106,12 +107,12 @@ export default function ExperimentPage() {
         ]}
       />
       <Card>
-        <Space wrap style={{ marginBottom: 16 }}>
+        <Space wrap className={styles.toolbar}>
           <Typography.Text type="secondary">数量</Typography.Text>
           <InputNumber min={1} max={3} value={count} onChange={(v) => setCount(v ?? 1)} />
           <Select<AnalysisLanguage>
             value={language}
-            style={{ width: 110 }}
+            className={styles.langSelect}
             onChange={setLanguage}
             options={[
               { value: 'zh', label: '中文' },
@@ -134,7 +135,7 @@ export default function ExperimentPage() {
         </Space>
 
         {busy ? (
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div className="page-center">
             <Spin tip="生成实验方案中..." />
             <Progress percent={record?.progress ?? 0} status="active" />
           </div>
@@ -158,7 +159,7 @@ export default function ExperimentPage() {
                 key={i}
                 size="small"
                 title={`方案 ${i + 1}`}
-                style={{ marginBottom: 12 }}
+                className={styles.planCard}
               >
                 <Typography.Paragraph>
                   <Typography.Text strong>假设：</Typography.Text>
@@ -168,15 +169,15 @@ export default function ExperimentPage() {
                   <Typography.Text strong>目标：</Typography.Text>
                   {plan.goal}
                 </Typography.Paragraph>
-                <Divider orientation="left" plain style={{ margin: '8px 0' }}>
+                <Divider orientation="left" plain className={styles.planDivider}>
                   数据集
                 </Divider>
                 <ul>{plan.datasets.map((d, j) => <li key={j}>{d}</li>)}</ul>
-                <Divider orientation="left" plain style={{ margin: '8px 0' }}>
+                <Divider orientation="left" plain className={styles.planDivider}>
                   基线
                 </Divider>
                 <ul>{plan.baselines.map((b, j) => <li key={j}>{b}</li>)}</ul>
-                <Divider orientation="left" plain style={{ margin: '8px 0' }}>
+                <Divider orientation="left" plain className={styles.planDivider}>
                   评价指标
                 </Divider>
                 <ul>{plan.metrics.map((m, j) => <li key={j}>{m}</li>)}</ul>

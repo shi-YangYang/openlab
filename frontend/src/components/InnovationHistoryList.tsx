@@ -218,7 +218,7 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
         width={720}
       >
         {detailLoading ? (
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div className="page-center">
             <Spin tip="加载中..." />
           </div>
         ) : detail == null ? null : content && content.length ? (
@@ -253,7 +253,7 @@ export default function InnovationHistoryList({ onAnalyze }: Props) {
         width={800}
       >
         {sourceLoading ? (
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div className="page-center">
             <Spin tip="加载中..." />
           </div>
         ) : sourcePapers.length ? (

@@ -45,7 +45,7 @@ def test_search_topic_decomposes(client, fake_arxiv, monkeypatch):
     async def fake_decompose(topic):
         return "attention mechanism transformer"
 
-    monkeypatch.setattr("app.main.decompose_topic", fake_decompose)
+    monkeypatch.setattr("app.routes.search.decompose_topic", fake_decompose)
     fake_arxiv([make_paper("1706.03762")])
 
     resp = client.post("/api/search/topic", json={
@@ -415,7 +415,7 @@ def test_llm_models_endpoint(client, monkeypatch):
             self.headers = headers
             return FakeResp()
 
-    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", FakeAsyncClient)
 
     resp = client.post(
         "/api/llm/models",
@@ -455,7 +455,7 @@ def test_llm_models_endpoint_parses_context_length(client, monkeypatch):
         async def get(self, url, headers=None):
             return FakeResp()
 
-    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", FakeAsyncClient)
 
     resp = client.post(
         "/api/llm/models",
@@ -498,7 +498,7 @@ def test_llm_models_endpoint_parses_reasoning_efforts(client, monkeypatch):
         async def get(self, url, headers=None):
             return FakeResp()
 
-    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", FakeAsyncClient)
 
     resp = client.post(
         "/api/llm/models",
@@ -541,7 +541,7 @@ def test_llm_models_endpoint_guesses_reasoning_efforts(client, monkeypatch):
         async def get(self, url, headers=None):
             return FakeResp()
 
-    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", FakeAsyncClient)
 
     resp = client.post(
         "/api/llm/models",
@@ -576,7 +576,7 @@ def test_llm_models_endpoint_error_status(client, monkeypatch):
         async def get(self, url, headers=None):
             return FakeResp()
 
-    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", FakeAsyncClient)
 
     resp = client.post(
         "/api/llm/models",

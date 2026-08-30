@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import type { CSSProperties } from 'react'
 import { Button, Space, Typography } from 'antd'
 import { MinusOutlined, CloseOutlined, BorderOutlined, SwitcherOutlined, RobotOutlined } from '@ant-design/icons'
+import styles from './TitleBar.module.css'
 
 export default function TitleBar() {
   const isElectron = !!window.electronAPI
@@ -15,51 +15,40 @@ export default function TitleBar() {
   }
 
   return (
-    <div
-      className="titlebar-drag"
-      style={{
-        height: 36,
-        background: '#001529',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 12px',
-        WebkitAppRegion: 'drag',
-      } as CSSProperties}
-    >
-      <Space size={8} style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
-        <RobotOutlined style={{ color: '#fff', fontSize: 18 }} />
-        <Typography.Text strong style={{ color: '#fff', fontSize: 13 }}>
+    <div className={`titlebar-drag ${styles.bar}`}>
+      <Space size={8} className={styles.noDrag}>
+        <RobotOutlined className={styles.brandIcon} />
+        <Typography.Text strong className={styles.brandText}>
           openlab
         </Typography.Text>
       </Space>
-      <Space size={0} style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+      <Space size={0} className={styles.noDrag}>
         <Button
           type="text"
           size="small"
-          icon={<MinusOutlined style={{ color: '#fff' }} />}
+          icon={<MinusOutlined className={styles.btnIcon} />}
           onClick={() => window.electronAPI?.minimize()}
-          style={{ minWidth: 36 }}
+          className={styles.winBtn}
         />
         <Button
           type="text"
           size="small"
           icon={
             isMaximized ? (
-              <SwitcherOutlined style={{ color: '#fff' }} />
+              <SwitcherOutlined className={styles.btnIcon} />
             ) : (
-              <BorderOutlined style={{ color: '#fff' }} />
+              <BorderOutlined className={styles.btnIcon} />
             )
           }
           onClick={handleMaximize}
-          style={{ minWidth: 36 }}
+          className={styles.winBtn}
         />
         <Button
           type="text"
           size="small"
-          icon={<CloseOutlined style={{ color: '#fff' }} />}
+          icon={<CloseOutlined className={styles.btnIcon} />}
           onClick={() => window.electronAPI?.quit()}
-          style={{ minWidth: 36 }}
+          className={styles.winBtn}
         />
       </Space>
     </div>

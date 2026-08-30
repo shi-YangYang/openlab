@@ -141,7 +141,7 @@ export default function InnovationPage() {
             </Space>
 
             {busy ? (
-              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <div className="page-center">
                 <Spin tip="生成创新点中..." />
                 <Progress percent={record?.progress ?? 0} status="active" />
               </div>

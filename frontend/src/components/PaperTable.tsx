@@ -129,9 +129,9 @@ export function paperTranslateColumn(
         return (
           <div style={{ minWidth: 120 }}>
             <Progress percent={state.progress} size="small" />
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            <span className="text-secondary-12">
               {state.message}
-            </Typography.Text>
+            </span>
           </div>
         )
       }
@@ -249,9 +249,9 @@ export default function PaperTable({
                 size="small"
                 showInfo={false}
               />
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              <span className="text-secondary-12">
                 {`${info.progress ?? 0}%${info.message ? ` ${info.message}` : ''}`}
-              </Typography.Text>
+              </span>
             </div>
           )
         }

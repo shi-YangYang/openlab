@@ -1,0 +1,40 @@
+.fullWidth {
+  width: 100%;
+}
+
+.toolbar {
+  margin-bottom: 8px;
+}
+
+.langSelect {
+  width: 110px;
+}
+
+.statusToolbar {
+  margin-bottom: 16px;
+}
+
+.dividerTop:global(.ant-divider-horizontal) {
+  margin: 8px 0 16px;
+}
+
+.loadingCenter {
+  text-align: center;
+  padding: 48px;
+}
+
+.tagWrap:global(.ant-tag) {
+  white-space: normal;
+  word-break: break-word;
+  height: auto;
+  line-height: 1.6;
+}
+
+.longText {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.contribTitle {
+  margin-top: 8px;
+}

@@ -129,7 +129,7 @@ export default function ReviewPage() {
             </Space>
 
             {submitting || record?.status === 'pending' || record?.status === 'running' ? (
-              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <div className="page-center">
                 <Spin tip="生成综述中..." />
                 <Progress percent={record?.progress ?? 0} status="active" />
               </div>

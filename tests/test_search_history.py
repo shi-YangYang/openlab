@@ -1,5 +1,5 @@
 from app import config, database
-from app.main import get_arxiv_client
+from app.routes.papers import get_arxiv_client
 from tests.conftest import make_paper
 
 
@@ -20,7 +20,7 @@ def test_topic_search_saves_history(client, fake_arxiv, monkeypatch):
     async def fake_decompose(topic):
         return "attention mechanism transformer"
 
-    monkeypatch.setattr("app.main.decompose_topic", fake_decompose)
+    monkeypatch.setattr("app.routes.search.decompose_topic", fake_decompose)
     fake_arxiv([make_paper("1")])
 
     resp = client.post("/api/search/topic", json={"topic": "transformers", "max_results": 10, "platforms": ["arxiv"]})

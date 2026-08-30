@@ -1,0 +1,19 @@
+.fullWidth {
+  width: 100%;
+}
+
+.toolbar {
+  margin-bottom: 16px;
+}
+
+.langSelect {
+  width: 110px;
+}
+
+.planCard {
+  margin-bottom: 12px;
+}
+
+.planDivider:global(.ant-divider-horizontal) {
+  margin: 8px 0;
+}

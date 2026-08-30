@@ -18,16 +18,16 @@ import PaperWorkspace from './components/PaperWorkspace'
 import SearchHistoryList from './components/SearchHistoryList'
 import InnovationHistoryList from './components/InnovationHistoryList'
 import ExperimentHistoryList from './components/ExperimentHistoryList'
-import LlmConfigForm from './components/LlmConfigForm'
+import LlmConfigForm from './components/llm-config/LlmConfigForm'
 import ProxySettings from './components/ProxySettings'
 import PlatformLogin from './components/PlatformLogin'
 import ServersPage from './components/ServersPage'
-import ServerDetailPage from './components/ServerDetailPage'
+import ServerDetailPage from './components/server/ServerDetailPage'
 import PaperAnalysisPage from './components/PaperAnalysisPage'
 import ReviewPage from './components/ReviewPage'
 import InnovationPage from './components/InnovationPage'
 import ExperimentPage from './components/ExperimentPage'
-import AgentPage from './components/AgentPage'
+import AgentPage from './components/agent/AgentPage'
 import UploadPdfModal from './components/UploadPdfModal'
 import { usePaperWorkspace } from './hooks/usePaperWorkspace'
 import { listServers, searchPapers, searchTopic } from './api'
@@ -234,13 +234,11 @@ export default function App() {
   )
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider width={160} style={{ background: '#001529', position: 'fixed', height: '100vh', zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 16px 12px' }}>
-          <img src="logo.png" alt="openlab" style={{ width: 28, height: 28 }} />
-          <Typography.Text strong style={{ color: '#fff', fontSize: 16 }}>
-            openlab
-          </Typography.Text>
+    <Layout>
+      <Sider width={160} className="app-sider">
+        <div className="app-logo-row">
+          <img src="logo.png" alt="openlab" className="app-logo" />
+          <span className="app-logo-text">openlab</span>
         </div>
         <Menu
           theme="dark"
@@ -248,13 +246,13 @@ export default function App() {
           selectedKeys={[selectedKey]}
           items={MENU_ITEMS}
           onClick={(e) => navigate(`/${e.key}`)}
-          style={{ borderInlineEnd: 'none' }}
+          className="app-menu"
         />
       </Sider>
-      <Layout style={{ marginLeft: 160, background: '#fff', height: 'calc(100vh - 36px)' }}>
+      <Layout className="app-content">
         <TitleBar />
-        <Content style={{ width: '100%', height: '100%', overflowY: 'auto' }}>
-          <div style={{ width: '100%' }}>
+        <Content className="app-content-inner">
+          <div>
             <Routes>
               <Route path="/" element={<Navigate to="/search" replace />} />
               <Route path="/search" element={searchPage} />

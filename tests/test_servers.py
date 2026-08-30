@@ -5,7 +5,7 @@ import re
 import pytest
 
 from app import config, database, servers, ssh
-from app.main import _resolve_upload_target, _safe_rel_path
+from app.routes.servers import _resolve_upload_target, _safe_rel_path
 
 
 def _payload(**overrides):

@@ -66,7 +66,7 @@ def test_login_endpoint_marks_logging_in_then_logged_in(client, monkeypatch):
         sessions.save_state(platform, {"cookies": [], "origins": []})
         sessions.set_state(platform, "logged_in")
 
-    monkeypatch.setattr("app.main.browser.run_login", fake_run_login)
+    monkeypatch.setattr("app.routes.platforms.browser.run_login", fake_run_login)
 
     resp = client.post("/api/platforms/cnki/login")
     assert resp.status_code == 200
@@ -90,7 +90,7 @@ def test_login_while_logging_in_is_idempotent(client, monkeypatch):
     def fake_run_login(platform):
         calls.append(platform)
 
-    monkeypatch.setattr("app.main.browser.run_login", fake_run_login)
+    monkeypatch.setattr("app.routes.platforms.browser.run_login", fake_run_login)
     resp = client.post("/api/platforms/cnki/login")
     assert resp.json()["state"] == "logging_in"
     time.sleep(0.05)

@@ -1,0 +1,31 @@
+.bar {
+  height: 36px;
+  background: #001529;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  -webkit-app-region: drag;
+}
+
+.noDrag {
+  -webkit-app-region: no-drag;
+}
+
+.brandIcon:global(.anticon) {
+  color: #fff;
+  font-size: 18px;
+}
+
+.brandText:global(.ant-typography) {
+  color: #fff;
+  font-size: 13px;
+}
+
+.winBtn {
+  min-width: 36px;
+}
+
+.btnIcon:global(.anticon) {
+  color: #fff;
+}

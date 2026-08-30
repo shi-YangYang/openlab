@@ -1,0 +1,112 @@
+/* ===== 创建视图 ===== */
+.fullWidth {
+  width: 100%;
+}
+
+.serverSelect {
+  min-width: 220px;
+}
+
+.workdirInput {
+  width: 260px;
+}
+
+.syncModeGroup {
+  margin-left: 8px;
+}
+
+.repoUrlInput {
+  width: 320px;
+  margin-left: 8px;
+}
+
+.stepField {
+  margin-bottom: 8px;
+}
+
+/* ===== 运行视图：步骤时间线 ===== */
+.runLayout {
+  display: flex;
+  gap: 16px;
+}
+
+.stepsSidebar {
+  width: 200px;
+  flex-shrink: 0;
+}
+
+.stepRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconRunning {
+  color: #1677ff;
+}
+
+.iconSuccess {
+  color: #52c41a;
+}
+
+.iconFailed {
+  color: #ff4d4f;
+}
+
+.iconSkipped {
+  color: #999999;
+}
+
+.iconRetrying {
+  color: #faad14;
+}
+
+.iconPending {
+  color: #bbbbbb;
+}
+
+.stateTag {
+  font-size: 11px;
+}
+
+.stopButton {
+  margin-top: 16px;
+}
+
+.finishedTag {
+  margin-top: 16px;
+}
+
+/* ===== 运行视图：日志区 ===== */
+.logColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sectionAlert {
+  margin-bottom: 8px;
+}
+
+.alertActions {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.logToolbar {
+  margin-bottom: 8px;
+}
+
+.filterInput {
+  width: 180px;
+}
+
+.logBox {
+  height: 380px;
+  overflow-y: auto;
+}
+
+.logEmpty {
+  color: #666666;
+}

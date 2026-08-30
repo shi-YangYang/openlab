@@ -72,7 +72,7 @@ def test_llm_test_success(client, monkeypatch):
             FakeResponse(status_code=200, data={"choices": [{"message": {"content": "pong"}}]})
         )
 
-    monkeypatch.setattr("app.main.httpx.AsyncClient", make_client)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", make_client)
 
     resp = client.post(
         "/api/llm/test",
@@ -95,7 +95,7 @@ def test_llm_test_http_error_returns_false_and_redacts_key(client, monkeypatch):
     fake_client = FakeAsyncClient(
         FakeResponse(status_code=401, data={"error": {"message": "Invalid API key"}})
     )
-    monkeypatch.setattr("app.main.httpx.AsyncClient", lambda **kwargs: fake_client)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", lambda **kwargs: fake_client)
 
     resp = client.post(
         "/api/llm/test",
@@ -113,7 +113,7 @@ def test_llm_test_http_error_returns_false_and_redacts_key(client, monkeypatch):
 
 
 def test_llm_test_network_error_returns_false(client, monkeypatch):
-    monkeypatch.setattr("app.main.httpx.AsyncClient", lambda **kwargs: RaisingAsyncClient())
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", lambda **kwargs: RaisingAsyncClient())
 
     resp = client.post(
         "/api/llm/test",
@@ -134,7 +134,7 @@ def test_llm_test_does_not_print_api_key(client, monkeypatch, capsys):
     fake_client = FakeAsyncClient(
         FakeResponse(status_code=401, data={"error": {"message": "Invalid API key"}})
     )
-    monkeypatch.setattr("app.main.httpx.AsyncClient", lambda **kwargs: fake_client)
+    monkeypatch.setattr("app.routes.llm.httpx.AsyncClient", lambda **kwargs: fake_client)
 
     client.post(
         "/api/llm/test",

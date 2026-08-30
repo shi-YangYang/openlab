@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 import {
   Alert,
   Breadcrumb,
@@ -25,24 +24,13 @@ import {
   listPapers,
 } from '../api'
 import type { AnalysisLanguage, AnalysisRecord } from '../types'
+import styles from './PaperAnalysisPage.module.css'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
   pending: { color: 'gold', label: '待分析' },
   running: { color: 'processing', label: '分析中' },
   done: { color: 'success', label: '已完成' },
   failed: { color: 'error', label: '失败' },
-}
-
-const TAG_STYLE: CSSProperties = {
-  whiteSpace: 'normal',
-  wordBreak: 'break-word',
-  height: 'auto',
-  lineHeight: 1.6,
-}
-
-const LONG_TEXT_STYLE: CSSProperties = {
-  whiteSpace: 'normal',
-  wordBreak: 'break-word',
 }
 
 function downloadText(text: string, filename: string) {
@@ -153,7 +141,7 @@ export default function PaperAnalysisPage() {
   const displayTitle = title ?? arxivId
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space direction="vertical" size={16} className={styles.fullWidth}>
       <Breadcrumb
         items={[
           {
@@ -172,10 +160,10 @@ export default function PaperAnalysisPage() {
         ]}
       />
       <Card>
-        <Space style={{ marginBottom: 8 }}>
+        <Space className={styles.toolbar}>
           <Select<AnalysisLanguage>
             value={language}
-            style={{ width: 110 }}
+            className={styles.langSelect}
             onChange={setLanguage}
             options={[
               { value: 'zh', label: '中文' },
@@ -195,17 +183,17 @@ export default function PaperAnalysisPage() {
           </Button>
         </Space>
 
-        <Divider style={{ margin: '8px 0 16px' }} />
+        <Divider className={styles.dividerTop} />
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 48 }}>
+          <div className={styles.loadingCenter}>
             <Spin />
           </div>
         ) : !record ? (
           <Alert type="info" message="尚未分析" description="点击上方「分析」按钮生成结构化分析。" />
         ) : (
           <>
-            <Space style={{ marginBottom: 16 }}>
+            <Space className={styles.statusToolbar}>
               <Tag color={(STATUS_META[record.status] ?? { color: 'default' }).color}>
                 {(STATUS_META[record.status] ?? { label: record.status }).label}
               </Tag>
@@ -213,7 +201,7 @@ export default function PaperAnalysisPage() {
             </Space>
 
             {(record.status === 'pending' || record.status === 'running') && (
-              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <div className="page-center">
                 <Progress percent={record.progress ?? 0} status="active" />
                 {record.message && (
                   <Typography.Text type="secondary">{record.message}</Typography.Text>
@@ -248,46 +236,46 @@ export default function PaperAnalysisPage() {
                 <Divider orientation="left">总结</Divider>
                 <Descriptions column={1} size="small">
                   <Descriptions.Item label="研究问题">
-                    <div style={LONG_TEXT_STYLE}>{content.summary.research_problem}</div>
+                    <div className={styles.longText}>{content.summary.research_problem}</div>
                   </Descriptions.Item>
                   <Descriptions.Item label="方法">
-                    <div style={LONG_TEXT_STYLE}>{content.summary.method}</div>
+                    <div className={styles.longText}>{content.summary.method}</div>
                   </Descriptions.Item>
                   <Descriptions.Item label="结论">
-                    <div style={LONG_TEXT_STYLE}>{content.summary.conclusion}</div>
+                    <div className={styles.longText}>{content.summary.conclusion}</div>
                   </Descriptions.Item>
                 </Descriptions>
-                <Typography.Title level={5} style={{ marginTop: 8 }}>贡献</Typography.Title>
+                <div className={`section-title ${styles.contribTitle}`}>贡献</div>
                 <ul>{content.summary.contributions.map((x, i) => <li key={i}>{x}</li>)}</ul>
 
                 <Divider orientation="left">实验与结果</Divider>
                 <Descriptions column={1} size="small">
                   <Descriptions.Item label="关键结果">
-                    <div style={LONG_TEXT_STYLE}>{content.experiments.key_results}</div>
+                    <div className={styles.longText}>{content.experiments.key_results}</div>
                   </Descriptions.Item>
                 </Descriptions>
-                <Typography.Title level={5}>数据集</Typography.Title>
-                <Space wrap>{content.experiments.datasets.map((x, i) => <Tag key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
-                <Typography.Title level={5}>基线</Typography.Title>
-                <Space wrap>{content.experiments.baselines.map((x, i) => <Tag key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
-                <Typography.Title level={5}>评测指标</Typography.Title>
-                <Space wrap>{content.experiments.metrics.map((x, i) => <Tag key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
+                <div className="section-title">数据集</div>
+                <Space wrap>{content.experiments.datasets.map((x, i) => <Tag key={i} className={styles.tagWrap}>{x}</Tag>)}</Space>
+                <div className="section-title">基线</div>
+                <Space wrap>{content.experiments.baselines.map((x, i) => <Tag key={i} className={styles.tagWrap}>{x}</Tag>)}</Space>
+                <div className="section-title">评测指标</div>
+                <Space wrap>{content.experiments.metrics.map((x, i) => <Tag key={i} className={styles.tagWrap}>{x}</Tag>)}</Space>
 
                 <Divider orientation="left">局限与展望</Divider>
                 <Descriptions column={1} size="small">
                   <Descriptions.Item label="局限性">
-                    <div style={LONG_TEXT_STYLE}>{content.limitations}</div>
+                    <div className={styles.longText}>{content.limitations}</div>
                   </Descriptions.Item>
                   <Descriptions.Item label="未来工作">
-                    <div style={LONG_TEXT_STYLE}>{content.future_work}</div>
+                    <div className={styles.longText}>{content.future_work}</div>
                   </Descriptions.Item>
                 </Descriptions>
 
                 <Divider orientation="left">关键词 / 标签</Divider>
-                <Typography.Title level={5}>关键词</Typography.Title>
-                <Space wrap>{content.keywords.map((x, i) => <Tag color="blue" key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
-                <Typography.Title level={5}>标签</Typography.Title>
-                <Space wrap>{content.tags.map((x, i) => <Tag color="green" key={i} style={TAG_STYLE}>{x}</Tag>)}</Space>
+                <div className="section-title">关键词</div>
+                <Space wrap>{content.keywords.map((x, i) => <Tag color="blue" key={i} className={styles.tagWrap}>{x}</Tag>)}</Space>
+                <div className="section-title">标签</div>
+                <Space wrap>{content.tags.map((x, i) => <Tag color="green" key={i} className={styles.tagWrap}>{x}</Tag>)}</Space>
               </>
             )}
           </>

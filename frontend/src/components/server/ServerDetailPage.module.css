@@ -1,0 +1,78 @@
+/* ===== 通用 ===== */
+.fullWidth {
+  width: 100%;
+}
+
+.pageTitle:global(.ant-typography) {
+  margin: 0;
+}
+
+/* ===== 监控 ===== */
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.loadingCenter {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.processesPre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+.rawItem {
+  margin-bottom: 12px;
+}
+
+.rawPre {
+  margin: 4px 0 0;
+  padding: 8px;
+  background: #f5f5f5;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+/* ===== 部署 ===== */
+.clonePre {
+  margin-top: 12px;
+  padding: 8px;
+  background: #f5f5f5;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.fileListBox {
+  max-height: 180px;
+  overflow: auto;
+  background: #fafafa;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.fileItem {
+  font-size: 12px;
+}
+
+/* ===== 命令执行 ===== */
+.outputPre {
+  margin: 0;
+  padding: 8px;
+  background: #f5f5f5;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

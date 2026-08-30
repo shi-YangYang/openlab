@@ -8,7 +8,8 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app import config  # noqa: E402
-from app.main import app, get_arxiv_client  # noqa: E402
+from app.app import app  # noqa: E402
+from app.routes.papers import get_arxiv_client  # noqa: E402
 
 
 class FakeArxivClient:
