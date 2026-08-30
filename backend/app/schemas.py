@@ -442,6 +442,8 @@ class AgentSessionUpdate(BaseModel):
 class AgentSessionMessage(BaseModel):
     role: str
     content: str
+    time: Optional[str] = None
+    model: Optional[str] = None
 
 
 class AgentSessionDetail(AgentSessionItem):

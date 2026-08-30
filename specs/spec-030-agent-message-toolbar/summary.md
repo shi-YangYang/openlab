@@ -30,3 +30,10 @@ Agent 聊天区域消息悬浮 toolbar：悬浮任意消息时，气泡下方淡
 
 - `tests/` 无 `normalize_history` 新增字段的专项测试（验收备注的可选增强，不阻塞）。
 - AC-1/3/5/7/8/11 属 UI 手动验证项，建议用户实际运行体验确认。
+
+## 返工记录（2026-08-30，用户实测发现）
+
+- **缺陷**：切换会话/重启后 toolbar 的模型名与时间全部显示 `-`。
+- **根因**：`AgentSessionMessage`（Pydantic）只有 `role`/`content`，路由 `response_model=AgentSessionDetail` 在响应序列化时过滤掉 `normalize_history` 返回的 `time`/`model`——持久化与函数层均正常，唯独 HTTP 响应边界丢字段；实施与验收均未覆盖该层。
+- **修复**：`schemas.py` 的 `AgentSessionMessage` 增加 `time`/`model` 可选字段；新增回归测试 `test_session_detail_returns_time_and_model`（TestClient 走完整 HTTP 路径断言两字段）。
+- **验证**：pytest 全量 293 passed。

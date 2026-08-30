@@ -1,5 +1,5 @@
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app import config, database
 from app.agent import agent as agent_module
@@ -132,3 +132,30 @@ async def test_session_detail_includes_usage(client, monkeypatch):
         "last_input_tokens": 0,
         "last_output_tokens": 0,
     }
+
+
+def test_session_detail_returns_time_and_model(client):
+    created = client.post("/api/agent/sessions", json={}).json()
+    session = sessions.get_session(created["id"])
+    assert session is not None
+    session.messages.append(
+        HumanMessage(
+            content="你好",
+            additional_kwargs={"ts": "2026-08-30 14:30:45", "model": "deepseek-chat"},
+        )
+    )
+    session.messages.append(
+        AIMessage(
+            content="回复内容",
+            additional_kwargs={"ts": "2026-08-30 14:31:10", "model": "deepseek-chat"},
+        )
+    )
+    sessions.save_messages(session)
+
+    detail = client.get(f"/api/agent/sessions/{created['id']}").json()
+    assert detail["messages"][0]["role"] == "user"
+    assert detail["messages"][0]["time"] == "2026-08-30 14:30"
+    assert detail["messages"][0]["model"] == "deepseek-chat"
+    assert detail["messages"][1]["role"] == "assistant"
+    assert detail["messages"][1]["time"] == "2026-08-30 14:31"
+    assert detail["messages"][1]["model"] == "deepseek-chat"
