@@ -274,6 +274,23 @@
   min-width: 110px;
 }
 
+.permissionSelect {
+  min-width: 96px;
+}
+
+.permissionSelectDanger:global(.ant-select) :global(.ant-select-selector) {
+  border-color: #fa8c16 !important;
+}
+
+.permissionSelectDanger:global(.ant-select) :global(.ant-select-selection-item) {
+  color: #fa8c16;
+  font-weight: 600;
+}
+
+.permissionSelectDanger:global(.ant-select) :global(.ant-select-arrow) {
+  color: #fa8c16;
+}
+
 .ringWrap {
   flex-shrink: 0;
   display: flex;

@@ -4,6 +4,7 @@ import { Button, Divider, Input, Popover, Space, Tag, Typography } from 'antd'
 import { PlusOutlined, SendOutlined, StopOutlined } from '@ant-design/icons'
 import type { AgentPendingApproval } from '../../types'
 import type { ConnectionState } from '../../hooks/useAgentChannel'
+import AgentPermissionSelect from './AgentPermissionSelect'
 import styles from './AgentPage.module.css'
 
 interface AgentChatInputProps {
@@ -125,6 +126,7 @@ export default function AgentChatInput({
         <Popover content={uploadMenu} trigger="click">
           <Button size="small" icon={<PlusOutlined />} loading={uploading} />
         </Popover>
+        <AgentPermissionSelect />
         {configBar}
         <div className={styles.toolbarSpacer} />
         {running && !offline ? (

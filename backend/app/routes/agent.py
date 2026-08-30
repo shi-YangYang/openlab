@@ -26,9 +26,12 @@ from ..agent import (
     update_title,
 )
 from ..agent.agent import _redact_secrets
+from ..agent import permissions as agent_permissions
 from ..agent.ws import runner as agent_runner
 from ..config import settings
 from ..schemas import (
+    AgentPermissions,
+    AgentPermissionsUpdate,
     AgentSessionCreate,
     AgentSessionDetail,
     AgentSessionItem,
@@ -148,6 +151,41 @@ async def delete_agent_session(session_id: str) -> dict:
     return {"status": "ok"}
 
 
+@router.get("/permissions", response_model=AgentPermissions)
+async def get_agent_permissions() -> dict:
+    state = agent_permissions.load()
+    return {
+        "mode": state["mode"],
+        "command_whitelist": state["command_whitelist"],
+    }
+
+
+@router.put("/permissions", response_model=AgentPermissions)
+async def update_agent_permissions(req: AgentPermissionsUpdate) -> dict:
+    if req.mode not in agent_permissions.MODES:
+        raise HTTPException(
+            status_code=400,
+            detail="mode 必须是 conservative / standard / full 之一",
+        )
+    try:
+        state = agent_permissions.save(req.mode, req.command_whitelist)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "mode": state["mode"],
+        "command_whitelist": state["command_whitelist"],
+    }
+
+
+@router.post("/permissions/reset", response_model=AgentPermissions)
+async def reset_agent_permissions() -> dict:
+    state = agent_permissions.reset()
+    return {
+        "mode": state["mode"],
+        "command_whitelist": state["command_whitelist"],
+    }
+
+
 @router.websocket("/ws")
 async def agent_ws(
     websocket: WebSocket, session_id: Optional[str] = Query(default=None)
@@ -198,9 +236,11 @@ async def agent_ws(
             if sid is None:
                 await send({"type": "error", "message": "会话不存在"})
                 continue
+            scope = message.get("scope")
             agent_runner.start_approve(
                 sid,
                 bool(message.get("approve")),
+                scope=scope if scope in (agent_permissions.ONCE_SCOPE, agent_permissions.SESSION_SCOPE) else None,
                 model=message.get("model") or None,
                 reasoning_effort=message.get("reasoning_effort") or None,
             )

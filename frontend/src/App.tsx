@@ -20,6 +20,7 @@ import InnovationHistoryList from './components/InnovationHistoryList'
 import ExperimentHistoryList from './components/ExperimentHistoryList'
 import LlmConfigForm from './components/llm-config/LlmConfigForm'
 import ProxySettings from './components/ProxySettings'
+import AgentPermissionSettings from './components/AgentPermissionSettings'
 import PlatformLogin from './components/PlatformLogin'
 import ServersPage from './components/ServersPage'
 import ServerDetailPage from './components/server/ServerDetailPage'
@@ -228,6 +229,7 @@ export default function App() {
       items={[
         { key: 'platform-login', label: '平台登录', children: <PlatformLogin /> },
         { key: 'llm', label: 'LLM 配置', children: <LlmConfigForm /> },
+        { key: 'agent-permissions', label: 'Agent 权限', children: <AgentPermissionSettings /> },
         { key: 'proxy', label: '网络代理', children: <ProxySettings /> },
       ]}
     />

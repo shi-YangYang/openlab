@@ -3,6 +3,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
 from app import config, database
 from app.agent import agent as agent_module
+from app.agent import permissions as agent_permissions
 from app.agent import sessions
 from app.agent.tools import get_tools, is_dangerous
 
@@ -13,6 +14,10 @@ def _setup_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config.settings, "data_dir", data_dir)
     monkeypatch.setattr(config.settings, "papers_dir", data_dir / "papers")
     monkeypatch.setattr(config.settings, "db_path", data_dir / "openlab.db")
+    monkeypatch.setenv(
+        "AGENT_PERMISSIONS_PATH", str(data_dir / "agent_permissions.json")
+    )
+    agent_permissions.save("conservative", [])
     database.init_db()
     sessions.clear_sessions()
     yield

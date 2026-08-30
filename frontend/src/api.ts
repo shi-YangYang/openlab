@@ -1,4 +1,6 @@
 import type {
+  AgentPermissions,
+  AgentPermissionsUpdate,
   AgentSessionDetail,
   AgentSessionItem,
   AnalysisLanguage,
@@ -460,6 +462,20 @@ export async function execCommand(id: string, command: string): Promise<ExecResu
 
 export async function listAgentSessions(): Promise<AgentSessionItem[]> {
   return get<AgentSessionItem[]>('/agent/sessions')
+}
+
+export async function getAgentPermissions(): Promise<AgentPermissions> {
+  return get<AgentPermissions>('/agent/permissions')
+}
+
+export async function updateAgentPermissions(
+  input: AgentPermissionsUpdate,
+): Promise<AgentPermissions> {
+  return put<AgentPermissions>('/agent/permissions', input)
+}
+
+export async function resetAgentPermissions(): Promise<AgentPermissions> {
+  return post<AgentPermissions>('/agent/permissions/reset', {})
 }
 
 export async function createAgentSession(): Promise<AgentSessionItem> {

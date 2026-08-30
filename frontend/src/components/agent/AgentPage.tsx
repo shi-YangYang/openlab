@@ -53,7 +53,7 @@ export default function AgentPage() {
             type="warning"
             showIcon
             message={`Agent 请求执行危险操作：${pendingApproval.tool}`}
-            description="请在下方确认弹窗中选择「允许」或「拒绝」。"
+            description="请在下方确认弹窗中选择「允许一次」「本会话允许」或「拒绝」。"
           />
         )}
         <AgentChatInput

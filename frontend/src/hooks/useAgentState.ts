@@ -11,6 +11,7 @@ import {
 } from '../api'
 import { useAgentChannel } from './useAgentChannel'
 import type {
+  AgentApprovalScope,
   AgentPendingApproval,
   AgentSessionItem,
   AgentSessionUsage,
@@ -457,9 +458,9 @@ export function useAgentState() {
     setUploadedFiles((prev) => prev.filter((f) => f !== path))
   }
 
-  const respondApproval = (approve: boolean) => {
+  const respondApproval = (approve: boolean, scope: AgentApprovalScope = 'once') => {
     if (!pendingApproval || offline) return
-    const ok = channel.sendApprove(approve)
+    const ok = channel.sendApprove(approve, scope)
     if (ok) {
       setPendingApproval(null)
       setRunning(true)

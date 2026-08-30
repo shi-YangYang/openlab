@@ -90,6 +90,7 @@ class AgentRunner:
         approve: bool = True,
         model: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> bool:
         if self.is_running(session_id):
             self._emit_soon(session_id, "error", {"message": "当前会话正在运行"})
@@ -104,6 +105,7 @@ class AgentRunner:
                 approve,
                 model=model,
                 reasoning_effort=reasoning_effort,
+                scope=scope,
             )
         )
         self._tasks[session_id] = task
@@ -155,6 +157,7 @@ class AgentRunner:
         approve: bool,
         model: Optional[str],
         reasoning_effort: Optional[str],
+        scope: Optional[str] = None,
     ) -> None:
         try:
             await agent_module.run_approve(
@@ -165,6 +168,7 @@ class AgentRunner:
                 emit=lambda event_type, payload=None: self._emit(
                     session_id, event_type, payload
                 ),
+                scope=scope or "once",
             )
         except asyncio.CancelledError:
             await self._emit(session_id, "stopped")

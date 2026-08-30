@@ -451,6 +451,18 @@ class AgentSessionDetail(AgentSessionItem):
     usage: Optional[Dict[str, int]] = None
 
 
+class AgentPermissions(BaseModel):
+    mode: str
+    command_whitelist: List[str] = Field(default_factory=list)
+
+
+class AgentPermissionsUpdate(BaseModel):
+    mode: str
+    # Non-string entries are tolerated here and filtered by the permission
+    # store (FR-12: illegal entries are dropped, not rejected with 422).
+    command_whitelist: List[Any] = Field(default_factory=list)
+
+
 class ExperimentRunCreate(BaseModel):
     experiment_id: int
     server_id: str

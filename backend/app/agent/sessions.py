@@ -29,6 +29,10 @@ class Session:
         self.title = title
         self.messages: List[BaseMessage] = []
         self.pending: Optional[Dict[str, Any]] = None
+        # Session-scoped tool allowlist (spec-032 FR-7): filled when the user
+        # picks "allow for this session" in the approval modal. In-memory only,
+        # so it resets on restart and is isolated per session.
+        self.allowed_tools: set = set()
 
 
 # In-process cache so the transient ``pending`` state survives across requests

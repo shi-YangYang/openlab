@@ -39,6 +39,7 @@ from langchain_openai import ChatOpenAI
 from .. import database
 from ..llm_config import get_effective_config, get_model_context_length
 from ..redact import redact_secrets as _redact_secrets
+from . import permissions as agent_permissions
 from . import tools as agent_tools
 from .compaction import compact_messages, should_compact
 from .sessions import (
@@ -64,10 +65,10 @@ SYSTEM_PROMPT = (
     "论文分析、文献综述、创新点生成、实验方案设计，以及 SSH 服务器部署与监控。\n"
     "工作方式：\n"
     "- 根据用户目标，自主规划步骤，逐步调用工具并把结果串联起来，直到产出最终回答。\n"
-    "- 可多轮调用工具；下载、分析、综述、创新、实验设计等较慢的操作请等待其完成后再继续。\n"
-    "- 危险操作（服务器命令 run_command、部署代码 deploy_code、SFTP 上传 deploy_upload、服务器增删改、"
-    "本地执行 Python 代码 run_python_code、执行 shell 命令 run_shell_command）会先暂停并交由用户确认，"
-    "请只在必要时调用。\n"
+     "- 可多轮调用工具；下载、分析、综述、创新、实验设计等较慢的操作请等待其完成后再继续。\n"
+     "- 危险操作（服务器命令 run_command、部署代码 deploy_code、SFTP 上传 deploy_upload、服务器增删改、"
+     "本地执行 Python 代码 run_python_code、执行 shell 命令 run_shell_command）可能需要用户确认后才执行"
+     "（取决于当前权限模式设置），请只在必要时调用。\n"
     "- 最后请用简洁、清晰的语言（默认中文）向用户总结你完成的工作与结论。"
 )
 
@@ -256,6 +257,25 @@ async def _execute_feedback(
         return {"tool": name, "args": args, "result": message, "status": "error"}
 
 
+def _needs_approval(session: Session, name: str, args: Dict[str, Any]) -> bool:
+    """Evaluate the tool call against the global permission mode (spec-032).
+
+    Only tools in ``DANGEROUS_TOOLS`` reach this check; the other 22 tools keep
+    executing directly. The permission state is re-read on every call so a mode
+    change applies to the very next tool call (FR-14). Session-level allows
+    (FR-7) participate with lower priority than the safety floor.
+    """
+    state = agent_permissions.load()
+    verdict = agent_permissions.evaluate(
+        name,
+        args,
+        mode=state["mode"],
+        whitelist=state["command_whitelist"],
+        session_allows=session.allowed_tools,
+    )
+    return verdict == agent_permissions.ASK
+
+
 async def _run_loop(
     session: Session,
     llm: Any,
@@ -301,7 +321,7 @@ async def _run_loop(
         for index, tool_call in enumerate(tool_calls):
             name = tool_call.get("name")
             args = tool_call.get("args") or {}
-            if agent_tools.is_dangerous(name):
+            if agent_tools.is_dangerous(name) and _needs_approval(session, name, args):
                 session.pending = {
                     "tool_calls": [
                         _tool_call_to_dict(tc) for tc in tool_calls[index:]
@@ -412,7 +432,14 @@ async def run_approve(
     model: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
     emit: Optional[EmitFn] = None,
+    scope: str = agent_permissions.ONCE_SCOPE,
 ) -> Dict[str, Any]:
+    """Resume after an approval decision.
+
+    ``scope`` is ``"once"`` (default, backwards compatible: execute just this
+    pending call) or ``"session"`` (execute and add the tool to the session's
+    allow set so later non-forbidden calls auto-execute; FR-9/FR-7).
+    """
     session = get_session(session_id)
     if session is None:
         raise AgentError("会话不存在。", 404)
@@ -424,6 +451,12 @@ async def run_approve(
     model = model or session.pending.get("model")
     reasoning_effort = reasoning_effort or session.pending.get("reasoning_effort")
     session.pending = None
+
+    if approve and scope == agent_permissions.SESSION_SCOPE:
+        for tool_call in pending_calls:
+            name = tool_call.get("name")
+            if name:
+                session.allowed_tools.add(name)
 
     emit_fn = _resolve_emit(emit)
     context_length = get_model_context_length(model)

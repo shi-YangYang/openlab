@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { terminalWsUrl } from '../api'
-import type { AgentWsEvent } from '../types'
+import type { AgentApprovalScope, AgentWsEvent } from '../types'
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
@@ -20,7 +20,7 @@ interface SendChatOptions {
 export interface AgentChannel {
   connectionState: ConnectionState
   sendChat: (message: string, options?: SendChatOptions) => boolean
-  sendApprove: (approve: boolean) => boolean
+  sendApprove: (approve: boolean, scope?: AgentApprovalScope) => boolean
   sendStop: () => boolean
 }
 
@@ -138,7 +138,8 @@ export function useAgentChannel({ sessionId, onEvent }: UseAgentChannelOptions):
   )
 
   const sendApprove = useCallback(
-    (approve: boolean): boolean => sendRaw({ type: 'approve', approve }),
+    (approve: boolean, scope: AgentApprovalScope = 'once'): boolean =>
+      sendRaw({ type: 'approve', approve, scope }),
     [sendRaw],
   )
 

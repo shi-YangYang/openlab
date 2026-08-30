@@ -411,3 +411,39 @@ export interface AgentSessionDetail extends AgentSessionItem {
   messages: AgentSessionMessage[]
   usage?: AgentSessionUsage
 }
+
+export type AgentPermissionMode = 'conservative' | 'standard' | 'full'
+
+export type AgentApprovalScope = 'once' | 'session'
+
+export interface AgentPermissions {
+  mode: AgentPermissionMode
+  command_whitelist: string[]
+}
+
+export interface AgentPermissionsUpdate {
+  mode: AgentPermissionMode
+  command_whitelist: string[]
+}
+
+export const AGENT_PERMISSION_MODES: {
+  value: AgentPermissionMode
+  label: string
+  description: string
+}[] = [
+  {
+    value: 'conservative',
+    label: '保守模式',
+    description: '每一步危险操作都需要你确认（等同旧行为）',
+  },
+  {
+    value: 'standard',
+    label: '标准模式',
+    description: '本地沙箱代码与只读命令自动执行，其余操作逐次确认',
+  },
+  {
+    value: 'full',
+    label: '完全访问',
+    description: '全部工具自动执行，仅安全底线（破坏性命令）仍需确认',
+  },
+]

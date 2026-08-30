@@ -1,11 +1,11 @@
 import { Button, Collapse, Modal, Typography } from 'antd'
-import type { AgentPendingApproval } from '../../types'
+import type { AgentApprovalScope, AgentPendingApproval } from '../../types'
 import { formatValue } from './AgentChatMessages'
 import styles from './AgentPage.module.css'
 
 interface AgentApprovalModalProps {
   pendingApproval: AgentPendingApproval | null
-  onApprove: (approve: boolean) => void
+  onApprove: (approve: boolean, scope: AgentApprovalScope) => void
   offline: boolean
 }
 
@@ -36,11 +36,19 @@ export default function AgentApprovalModal({
       closable={false}
       maskClosable={false}
       footer={[
-        <Button key="reject" danger disabled={offline} onClick={() => onApprove(false)}>
+        <Button key="reject" danger disabled={offline} onClick={() => onApprove(false, 'once')}>
           拒绝
         </Button>,
-        <Button key="allow" type="primary" disabled={offline} onClick={() => onApprove(true)}>
-          允许执行
+        <Button
+          key="session"
+          disabled={offline}
+          onClick={() => onApprove(true, 'session')}
+          title="本次会话内该工具不再询问（破坏性命令黑名单除外）"
+        >
+          本会话允许
+        </Button>,
+        <Button key="once" type="primary" disabled={offline} onClick={() => onApprove(true, 'once')}>
+          允许一次
         </Button>,
       ]}
     >
@@ -67,6 +75,9 @@ export default function AgentApprovalModal({
       ) : (
         <pre className={styles.argsPre}>{argsText}</pre>
       )}
+      <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
+        不想再被询问？可在设置或工具栏切换为完全访问模式
+      </Typography.Text>
     </Modal>
   )
 }
