@@ -18,7 +18,8 @@ export interface Turn {
   role: 'user' | 'assistant'
   text: string
   toolCalls: AgentToolCall[]
-  time?: string
+  time?: string | null
+  model?: string | null
   files?: string[]
 }
 
@@ -82,6 +83,32 @@ export default function AgentChatMessages({
     },
   }
 
+  const renderToolbar = (turn: Turn, align: 'start' | 'end') => (
+    <div
+      className={`${styles.turnToolbar} ${
+        align === 'end' ? styles.turnToolbarEnd : styles.turnToolbarStart
+      }`}
+    >
+      {turn.model ? (
+        <Tooltip title={turn.model}>
+          <span className={styles.toolbarModel}>{turn.model}</span>
+        </Tooltip>
+      ) : (
+        <span className={styles.toolbarModel}>-</span>
+      )}
+      <span className={styles.toolbarTime}>{turn.time || '-'}</span>
+      <Tooltip title="复制">
+        <Button
+          className={styles.toolbarCopy}
+          size="small"
+          type="text"
+          icon={<CopyOutlined />}
+          onClick={() => void onCopyText(turn.text)}
+        />
+      </Tooltip>
+    </div>
+  )
+
   return (
     <div className={styles.messagesScroll}>
       {messages.length === 0 && !loading && !running ? (
@@ -91,19 +118,10 @@ export default function AgentChatMessages({
           description="输入一个科研目标，Agent 将自主调用工具完成任务"
         />
       ) : (
-        <Space direction="vertical" size={12} className={styles.messagesList}>
+        <Space direction="vertical" size={32} className={styles.messagesList}>
           {messages.map((turn, i) =>
             turn.role === 'user' ? (
               <div key={i} className={`${styles.turnWrap} ${styles.turnRowEnd}`}>
-                <Tooltip title="复制原文">
-                  <Button
-                    className={`${styles.turnCopy} ${styles.copyLeft}`}
-                    size="small"
-                    type="text"
-                    icon={<CopyOutlined />}
-                    onClick={() => onCopyText(turn.text)}
-                  />
-                </Tooltip>
                 <div className={styles.userBubble}>
                   {turn.text}
                   {turn.files && turn.files.length > 0 && (
@@ -125,14 +143,8 @@ export default function AgentChatMessages({
                       })}
                     </div>
                   )}
-                  {turn.time && (
-                    <div className={styles.bubbleTime}>
-                      <Typography.Text type="secondary" className={styles.bubbleTimeText}>
-                        {turn.time}
-                      </Typography.Text>
-                    </div>
-                  )}
                 </div>
+                {renderToolbar(turn, 'end')}
               </div>
             ) : (
               <div key={i} className={`${styles.turnWrap} ${styles.turnRowStart}`}>
@@ -178,21 +190,8 @@ export default function AgentChatMessages({
                       })}
                     />
                   )}
-                  {turn.time && (
-                    <Typography.Text type="secondary" className={styles.assistantTime}>
-                      {turn.time}
-                    </Typography.Text>
-                  )}
                 </div>
-                <Tooltip title="复制原文">
-                  <Button
-                    className={`${styles.turnCopy} ${styles.copyRight}`}
-                    size="small"
-                    type="text"
-                    icon={<CopyOutlined />}
-                    onClick={() => onCopyText(turn.text)}
-                  />
-                </Tooltip>
+                {renderToolbar(turn, 'start')}
               </div>
             ),
           )}

@@ -121,27 +121,48 @@
   justify-content: flex-start;
 }
 
-.turnCopy {
+.turnToolbar {
+  position: absolute;
+  top: 100%;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
   opacity: 0;
-  transition: opacity 0.15s;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 1;
 }
 
-.turnWrap:hover .turnCopy {
+.turnWrap:hover .turnToolbar {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.copyLeft {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.copyRight {
-  position: absolute;
+.turnToolbarEnd {
   right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+}
+
+.turnToolbarStart {
+  left: 0;
+}
+
+.toolbarModel {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbarTime {
+  white-space: nowrap;
+}
+
+.toolbarCopy:global(.ant-btn) {
+  color: #999;
 }
 
 .userBubble {
@@ -166,20 +187,6 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.bubbleTime {
-  text-align: right;
-  margin-top: 2px;
-}
-
-.bubbleTimeText:global(.ant-typography) {
-  font-size: 12px;
-}
-
-.assistantTime:global(.ant-typography) {
-  font-size: 12px;
-  display: inline-block;
 }
 
 .toolDetail {

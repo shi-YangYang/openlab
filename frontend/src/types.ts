@@ -394,6 +394,8 @@ export interface AgentSessionItem {
 export interface AgentSessionMessage {
   role: string
   content: string
+  time?: string | null
+  model?: string | null
 }
 
 export interface AgentSessionUsage {

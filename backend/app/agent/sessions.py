@@ -128,22 +128,36 @@ def _content_to_str(content: Any) -> str:
     return str(content)
 
 
-def normalize_history(messages: List[BaseMessage]) -> List[Dict[str, str]]:
+def normalize_history(messages: List[BaseMessage]) -> List[Dict[str, Any]]:
     """Convert stored LangChain messages into a compact UI-friendly history.
 
     System and tool messages are omitted; assistant messages with empty content
     (e.g. an intermediate tool-call turn) are dropped so the history shows only
-    the user/assistant conversation text.
+    the user/assistant conversation text. Each item also carries the optional
+    ``time`` (derived from the persisted ``ts`` kwarg, ``YYYY-MM-DD HH:mm``) and
+    ``model`` metadata; both are ``None`` when absent so old sessions and
+    compacted summary messages stay compatible.
     """
-    items: List[Dict[str, str]] = []
+    items: List[Dict[str, Any]] = []
     for message in messages:
         if isinstance(message, (SystemMessage, ToolMessage)):
             continue
         content = _content_to_str(getattr(message, "content", "")).strip()
+        kwargs = getattr(message, "additional_kwargs", None)
+        kwargs = kwargs if isinstance(kwargs, dict) else {}
+        ts = kwargs.get("ts")
+        time_str = ts[:16] if isinstance(ts, str) and len(ts) >= 16 else None
+        model = kwargs.get("model")
+        if not isinstance(model, str) or not model:
+            model = None
         if isinstance(message, HumanMessage):
-            items.append({"role": "user", "content": content})
+            items.append(
+                {"role": "user", "content": content, "time": time_str, "model": model}
+            )
         elif isinstance(message, AIMessage) and content:
-            items.append({"role": "assistant", "content": content})
+            items.append(
+                {"role": "assistant", "content": content, "time": time_str, "model": model}
+            )
     return items
 
 

@@ -20,8 +20,10 @@ import type {
 } from '../types'
 import type { Turn } from '../components/agent/AgentChatMessages'
 
-function hhmmNow(): string {
-  return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+function timestampNow(): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
 }
 
 function runningStatusLabel(status?: string): string {
@@ -58,6 +60,7 @@ export function useAgentState() {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
 
   const currentIdRef = useRef<string | null>(null)
+  const activeModelRef = useRef<string | null>(null)
   const compactTimerRef = useRef<number | null>(null)
   const wasDisconnectedRef = useRef(false)
   const renamingRef = useRef<string | null>(null)
@@ -105,7 +108,8 @@ export function useAgentState() {
               role,
               text: m.content,
               toolCalls: [],
-              time: old && old.role === role ? old.time : undefined,
+              time: m.time ?? (old && old.role === role ? old.time : undefined),
+              model: m.model ?? (old && old.role === role ? old.model : undefined),
             }
           }),
         )
@@ -136,9 +140,15 @@ export function useAgentState() {
         const next = [...prev]
         const last = next[next.length - 1]
         if (last && last.role === 'assistant') {
-          next[next.length - 1] = { ...last, text: reply ?? '', time: hhmmNow() }
+          next[next.length - 1] = { ...last, text: reply ?? '', time: timestampNow() }
         } else {
-          next.push({ role: 'assistant', text: reply ?? '', toolCalls: [], time: hhmmNow() })
+          next.push({
+            role: 'assistant',
+            text: reply ?? '',
+            toolCalls: [],
+            time: timestampNow(),
+            model: activeModelRef.current,
+          })
         }
         return next
       })
@@ -184,7 +194,13 @@ export function useAgentState() {
             if (last && last.role === 'assistant') {
               next[next.length - 1] = { ...last, text: last.text + event.delta }
             } else {
-              next.push({ role: 'assistant', text: event.delta, toolCalls: [], time: hhmmNow() })
+              next.push({
+                role: 'assistant',
+                text: event.delta,
+                toolCalls: [],
+                time: timestampNow(),
+                model: activeModelRef.current,
+              })
             }
             return next
           })
@@ -203,7 +219,8 @@ export function useAgentState() {
                 role: 'assistant',
                 text: '',
                 toolCalls: [event.entry],
-                time: hhmmNow(),
+                time: timestampNow(),
+                model: activeModelRef.current,
               })
             }
             return next
@@ -358,10 +375,18 @@ export function useAgentState() {
     setUploadedFiles([])
     setStatusLabel('')
     setLoading(true)
-    const hhmm = hhmmNow()
+    const effectiveModel = model || groupDefaults.model || null
+    activeModelRef.current = effectiveModel
     setMessages((prev) => [
       ...prev,
-      { role: 'user', text, toolCalls: [], time: hhmm, files: attachments },
+      {
+        role: 'user',
+        text,
+        toolCalls: [],
+        time: timestampNow(),
+        model: effectiveModel,
+        files: attachments,
+      },
     ])
     const ok = channel.sendChat(notice, { model, reasoningEffort })
     if (!ok) {

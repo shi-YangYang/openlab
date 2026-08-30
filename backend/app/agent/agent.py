@@ -24,9 +24,16 @@ as ``interrupted`` (FR-4).
 """
 import asyncio
 import json
+from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_openai import ChatOpenAI
 
 from .. import database
@@ -91,6 +98,19 @@ def _stringify(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return str(value)
+
+
+def _stamp_message(message: BaseMessage, model: Optional[str]) -> None:
+    """Attach persistence metadata (spec-030) to a user/assistant message.
+
+    ``ts`` is the local ``YYYY-MM-DD HH:MM:SS`` timestamp; ``model`` is the
+    model name actually in effect for this message (``None`` keeps the field
+    absent-compatible for the frontend's ``-`` placeholder).
+    """
+    kwargs = dict(message.additional_kwargs or {})
+    kwargs["ts"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    kwargs["model"] = model
+    message.additional_kwargs = kwargs
 
 
 def _generate_title(message: str, max_len: int = AUTO_TITLE_MAX_LEN) -> str:
@@ -248,6 +268,7 @@ async def _run_loop(
     context_length: Optional[int] = None,
 ) -> Dict[str, Any]:
     emit_fn = _resolve_emit(emit)
+    effective_model = model or get_effective_config()["model"]
     steps = steps_used
     call_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     while steps < max_steps:
@@ -257,6 +278,7 @@ async def _run_loop(
 
         await _set_status_emit(session.session_id, "thinking", emit_fn)
         response, usage = await _stream_reply(llm, session.messages, emit_fn)
+        _stamp_message(response, effective_model)
         session.messages.append(response)
 
         input_tokens = int(usage.get("input_tokens") or 0)
@@ -332,7 +354,10 @@ async def run_chat(
     if is_first:
         session.messages.append(SystemMessage(content=SYSTEM_PROMPT))
 
-    session.messages.append(HumanMessage(content=message))
+    user_message = HumanMessage(content=message)
+    # Record the model actually in effect for this request (FR-10).
+    _stamp_message(user_message, model or get_effective_config()["model"])
+    session.messages.append(user_message)
     if is_first and not session.title:
         session.title = _generate_title(message)
         update_title(session.session_id, session.title)
