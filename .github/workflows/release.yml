@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
@@ -57,6 +59,13 @@ jobs:
           tsc -p electron/tsconfig.json
         shell: pwsh
 
+      - name: Sync version from tag
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME.TrimStart("v")
+          if ($tag -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') { throw "Invalid semver in tag '$env:GITHUB_REF_NAME'" }
+          npm version $tag --no-git-tag-version --allow-same-version
+
       - name: electron-builder
         env:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
@@ -73,10 +82,38 @@ jobs:
           name: electron-builder-log
           path: electron-builder-log.txt
 
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $tag = $env:GITHUB_REF_NAME
+          $prev = git -c i18n.logOutputEncoding=utf-8 describe --tags --abbrev=0 "$tag^" 2>$null
+          $range = if ($prev) { "$prev..$tag" } else { $tag }
+          $log = @(git -c i18n.logOutputEncoding=utf-8 log --pretty=format:"- %s" $range | Where-Object { $_ })
+          $lines = @("## Commits in $tag", "")
+          if ($log.Count -gt 0) { $lines += $log } else { $lines += "- (no commits)" }
+          Set-Content -Path release-notes.txt -Value $lines -Encoding utf8NoBOM
+          Get-Content release-notes.txt
+
+      - name: Remove old release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $json = gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --json assets 2>$null
+          if ($LASTEXITCODE -eq 0 -and $json) {
+            foreach ($a in ($json | ConvertFrom-Json).assets) {
+              Write-Host "Deleting stale asset: $($a.name)"
+              gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$($a.id)"
+            }
+          } else {
+            Write-Host "No existing release for $env:GITHUB_REF_NAME; skip cleanup"
+          }
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: release-notes.txt
           files: frontend/dist_electron/*.exe

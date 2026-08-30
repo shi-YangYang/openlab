@@ -3,7 +3,7 @@
 ## 元信息
 
 - **Spec 编号**：`spec-028-startup-ci`
-- **状态**：`draft`
+- **状态**：`completed`
 - **创建日期**：2026-08-28
 - **关联决策**：`.ai/decisions/2026-08-28-startup-ci.md`
 - **负责人**：协调开发 Agent
