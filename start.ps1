@@ -102,10 +102,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $Root "frontend\node_modules"))) {
     }
 }
 
-# --- 6. 安装根目录依赖 concurrently（若不存在） ---
-Write-Step "检查根目录依赖 node_modules (concurrently) ..."
-if (-not (Test-Path -LiteralPath (Join-Path $Root "node_modules"))) {
-    Write-Step "安装根目录依赖 (concurrently) ..."
+Write-Step "检查根目录依赖 (concurrently / electron) ..."
+if (-not (Test-Path -LiteralPath (Join-Path $Root "node_modules")) -or -not (Test-Path -LiteralPath (Join-Path $Root "node_modules\electron"))) {
+    Write-Step "安装根目录依赖 ..."
     Push-Location $Root
     try {
         npm install
@@ -119,14 +118,15 @@ if (-not (Test-Path -LiteralPath (Join-Path $Root "node_modules"))) {
     }
 }
 
-# --- 7. 合并输出启动前后端 ---
-Write-Step "启动前后端（按 Ctrl+C 停止）..."
+# --- 7. 启动 Electron 桌面客户端 ---
+Write-Step "启动 Electron 桌面客户端（按 Ctrl+C 停止）..."
 Write-Host "  后端: http://localhost:$Port  (health: /api/health)" -ForegroundColor DarkGray
-Write-Host "  前端: http://localhost:5174" -ForegroundColor DarkGray
+Write-Host "  前端: 由 Electron 窗口内嵌加载" -ForegroundColor DarkGray
 Push-Location $Root
 try {
-    npm run dev
+    npm run electron:dev
 }
 finally {
     Pop-Location
 }
+
