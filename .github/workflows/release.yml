@@ -60,7 +60,18 @@ jobs:
       - name: electron-builder
         env:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
-        run: npx electron-builder --win
+          ELECTRON_BUILDER_CACHE: ${{ github.workspace }}\.electron-builder-cache
+        run: |
+          npx electron-builder --win 2>&1 | Tee-Object -FilePath electron-builder-log.txt
+          exit $LASTEXITCODE
+        shell: pwsh
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-builder-log
+          path: electron-builder-log.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
