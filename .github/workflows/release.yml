@@ -94,6 +94,7 @@ jobs:
           if ($log.Count -gt 0) { $lines += $log } else { $lines += "- (no commits)" }
           Set-Content -Path release-notes.txt -Value $lines -Encoding utf8NoBOM
           Get-Content release-notes.txt
+          exit 0
 
       - name: Remove old release assets
         env:
@@ -107,9 +108,10 @@ jobs:
               gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$id"
               if ($LASTEXITCODE -ne 0) { throw "Failed to delete asset $id" }
             }
-          } else {
-            Write-Host "No existing release for $env:GITHUB_REF_NAME; skip cleanup"
+            exit 0
           }
+          Write-Host "No existing release for $env:GITHUB_REF_NAME; skip cleanup"
+          exit 0
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
