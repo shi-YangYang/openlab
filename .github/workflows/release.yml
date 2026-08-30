@@ -62,7 +62,7 @@ jobs:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
           ELECTRON_BUILDER_CACHE: ${{ github.workspace }}\.electron-builder-cache
         run: |
-          npx electron-builder --win 2>&1 | Tee-Object -FilePath electron-builder-log.txt
+          npx electron-builder --win --publish never 2>&1 | Tee-Object -FilePath electron-builder-log.txt
           exit $LASTEXITCODE
         shell: pwsh
 
