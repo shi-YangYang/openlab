@@ -359,6 +359,16 @@ export interface AgentToolCall {
   status: string
 }
 
+export interface Turn {
+  role: 'user' | 'assistant'
+  text: string
+  toolCalls: AgentToolCall[]
+  time?: string | null
+  model?: string | null
+  files?: string[]
+  intermediate?: boolean
+}
+
 export interface AgentPendingApproval {
   tool: string
   args: Record<string, unknown>
@@ -396,6 +406,8 @@ export interface AgentSessionMessage {
   content: string
   time?: string | null
   model?: string | null
+  intermediate?: boolean
+  toolCalls?: AgentToolCall[]
 }
 
 export interface AgentSessionUsage {

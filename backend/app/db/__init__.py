@@ -185,6 +185,7 @@ from .agent import (  # noqa: E402,F401
     delete_agent_session,
     get_agent_session,
     list_agent_sessions,
+    reset_agent_session_running,
     save_agent_messages,
     set_agent_session_last_usage,
     set_agent_session_running,

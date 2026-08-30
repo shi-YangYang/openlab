@@ -42,7 +42,9 @@ export default function AgentPage() {
           messages={agent.messages}
           loading={agent.loading}
           running={agent.running}
-          statusLabel={agent.statusLabel}
+          activity={agent.activity}
+          pendingApproval={pendingApproval}
+          stopPending={agent.stopPending}
           bottomRef={agent.bottomRef}
           sessionId={agent.currentId}
           onCopyText={agent.copyText}

@@ -146,6 +146,21 @@ def set_agent_session_status(session_id: str, status: str) -> None:
         conn.close()
 
 
+def reset_agent_session_running() -> None:
+    """Reset ``running``/``status`` for every session (startup recovery).
+
+    The backend serves runs in a single process, so after a restart no run can
+    still be alive; any residual ``running=1`` row is a zombie left behind by a
+    crash or kill and would otherwise show a permanent "thinking" state.
+    """
+    conn = _connect()
+    try:
+        conn.execute("UPDATE agent_sessions SET running = 0, status = ''")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def delete_agent_session(session_id: str) -> bool:
     conn = _connect()
     try:

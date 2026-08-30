@@ -121,6 +121,16 @@ def set_status(session_id: str, status: str) -> None:
     database.set_agent_session_status(session_id, status)
 
 
+def reset_running_states() -> None:
+    """Clear zombie running/status flags of all sessions (spec-033 FR-1).
+
+    Called once during application startup: a restart means any previously
+    running task is gone, so residual ``running=1`` rows are stale state left
+    by a crash or kill, not live work.
+    """
+    database.reset_agent_session_running()
+
+
 def _content_to_str(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -132,16 +142,66 @@ def _content_to_str(content: Any) -> str:
     return str(content)
 
 
+def _tool_status(result: str) -> str:
+    """Infer tool call status from the persisted ToolMessage content.
+
+    ``agent.py`` stores failures as ``执行失败: ...`` and user-rejected calls
+    as ``用户拒绝了该操作，未执行。``; anything else counts as done.
+    """
+    if result.startswith("执行失败") or result.startswith("用户拒绝"):
+        return "error"
+    return "done"
+
+
+def _rebuild_tool_calls(
+    tool_calls: Any, tool_messages: Dict[Any, ToolMessage]
+) -> List[Dict[str, Any]]:
+    """Rebuild UI-facing tool call entries from an AIMessage's ``tool_calls``.
+
+    Each entry is ``{tool, args, result, status}``; ``args`` keeps the original
+    dict. The result comes from the ToolMessage matching ``tool_call_id`` — a
+    missing result (crash mid-run) or a rejected call yields ``status=error``.
+    """
+    rebuilt: List[Dict[str, Any]] = []
+    for call in tool_calls or []:
+        if not isinstance(call, dict):
+            continue
+        tool_message = tool_messages.get(call.get("id"))
+        if tool_message is None:
+            result, status = "", "error"
+        else:
+            result = _content_to_str(tool_message.content)
+            status = _tool_status(result)
+        args = call.get("args")
+        rebuilt.append(
+            {
+                "tool": call.get("name"),
+                "args": args if isinstance(args, dict) else {},
+                "result": result,
+                "status": status,
+            }
+        )
+    return rebuilt
+
+
 def normalize_history(messages: List[BaseMessage]) -> List[Dict[str, Any]]:
     """Convert stored LangChain messages into a compact UI-friendly history.
 
-    System and tool messages are omitted; assistant messages with empty content
-    (e.g. an intermediate tool-call turn) are dropped so the history shows only
-    the user/assistant conversation text. Each item also carries the optional
-    ``time`` (derived from the persisted ``ts`` kwarg, ``YYYY-MM-DD HH:mm``) and
-    ``model`` metadata; both are ``None`` when absent so old sessions and
-    compacted summary messages stay compatible.
+    System and tool messages are omitted as standalone items; tool activity is
+    re-attached to the AI message that issued it via ``toolCalls`` entries
+    (spec-033 FR-4). AI messages that carry tool calls but no text are kept so
+    tool cards survive a reload. Each item carries ``intermediate`` (True for
+    process turns: any AI message with tool calls, or a non-final AI message
+    following the same user message) plus the optional ``time`` (from the
+    persisted ``ts`` kwarg, ``YYYY-MM-DD HH:mm``) and ``model`` metadata; both
+    are ``None`` when absent so old sessions and compacted summary messages
+    stay compatible.
     """
+    tool_messages: Dict[Any, ToolMessage] = {}
+    for message in messages:
+        if isinstance(message, ToolMessage):
+            tool_messages[getattr(message, "tool_call_id", None)] = message
+
     items: List[Dict[str, Any]] = []
     for message in messages:
         if isinstance(message, (SystemMessage, ToolMessage)):
@@ -156,12 +216,44 @@ def normalize_history(messages: List[BaseMessage]) -> List[Dict[str, Any]]:
             model = None
         if isinstance(message, HumanMessage):
             items.append(
-                {"role": "user", "content": content, "time": time_str, "model": model}
+                {
+                    "role": "user",
+                    "content": content,
+                    "time": time_str,
+                    "model": model,
+                    "intermediate": False,
+                    "toolCalls": [],
+                }
             )
-        elif isinstance(message, AIMessage) and content:
+        elif isinstance(message, AIMessage):
+            tool_calls = _rebuild_tool_calls(
+                getattr(message, "tool_calls", None), tool_messages
+            )
+            if not content and not tool_calls:
+                continue
             items.append(
-                {"role": "assistant", "content": content, "time": time_str, "model": model}
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "time": time_str,
+                    "model": model,
+                    "intermediate": bool(tool_calls),
+                    "toolCalls": tool_calls,
+                }
             )
+
+    # The last AI message of each user segment is the final reply; the earlier
+    # AI messages of that segment are process turns (spec-033 FR-4).
+    segment_positions: List[int] = []
+    for index, item in enumerate(items):
+        if item["role"] == "user":
+            for pos in segment_positions[:-1]:
+                items[pos]["intermediate"] = True
+            segment_positions = []
+        else:
+            segment_positions.append(index)
+    for pos in segment_positions[:-1]:
+        items[pos]["intermediate"] = True
     return items
 
 

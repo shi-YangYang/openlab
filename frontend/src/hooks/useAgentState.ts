@@ -18,8 +18,9 @@ import type {
   AgentUsageInfo,
   AgentWsEvent,
   LlmModelInfo,
+  Turn,
 } from '../types'
-import type { Turn } from '../components/agent/AgentChatMessages'
+import type { AgentActivity } from '../components/agent/AgentRunningIndicator'
 
 function timestampNow(): string {
   const now = new Date()
@@ -27,12 +28,25 @@ function timestampNow(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
 }
 
-function runningStatusLabel(status?: string): string {
-  if (status === 'thinking') return '思考中…'
-  if (status && status.startsWith('executing:')) {
-    return `执行中：${status.slice('executing:'.length).trim()}`
+function activityFromStatus(text: string): AgentActivity | null {
+  const value = (text || '').trim()
+  if (!value) return null
+  if (value === 'thinking') {
+    return { phase: 'thinking', tool: null, startedAt: Date.now() }
   }
-  return 'Agent 正在执行…'
+  if (value.startsWith('executing:')) {
+    const raw = value.slice('executing:'.length).trim()
+    const tool = raw.replace(/\s*\(第\d+步\)\s*$/, '').trim()
+    return { phase: 'executing', tool: tool || raw, startedAt: Date.now() }
+  }
+  return null
+}
+
+function lastRunStart(messages: Turn[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return i
+  }
+  return -1
 }
 
 export function useAgentState() {
@@ -43,7 +57,8 @@ export function useAgentState() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
-  const [statusLabel, setStatusLabel] = useState('')
+  const [activity, setActivity] = useState<AgentActivity | null>(null)
+  const [stopPending, setStopPending] = useState(false)
   const [pendingApproval, setPendingApproval] = useState<AgentPendingApproval | null>(null)
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -73,7 +88,7 @@ export function useAgentState() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, statusLabel, loading, running])
+  }, [messages, activity, loading, running])
 
   useEffect(
     () => () => {
@@ -108,7 +123,8 @@ export function useAgentState() {
             return {
               role,
               text: m.content,
-              toolCalls: [],
+              toolCalls: m.toolCalls ?? [],
+              intermediate: m.intermediate ?? false,
               time: m.time ?? (old && old.role === role ? old.time : undefined),
               model: m.model ?? (old && old.role === role ? old.model : undefined),
             }
@@ -116,10 +132,10 @@ export function useAgentState() {
         )
         if (detail.running) {
           setRunning(true)
-          setStatusLabel(runningStatusLabel(detail.status))
+          setActivity(activityFromStatus(detail.status ?? ''))
         } else {
           setRunning(false)
-          setStatusLabel('')
+          setActivity(null)
         }
       } catch (e) {
         setRunning(false)
@@ -132,7 +148,8 @@ export function useAgentState() {
   const clearRunState = useCallback(() => {
     setRunning(false)
     setLoading(false)
-    setStatusLabel('')
+    setActivity(null)
+    setStopPending(false)
   }, [])
 
   const applyDone = useCallback(
@@ -140,13 +157,16 @@ export function useAgentState() {
       setMessages((prev) => {
         const next = [...prev]
         const last = next[next.length - 1]
-        if (last && last.role === 'assistant') {
-          next[next.length - 1] = { ...last, text: reply ?? '', time: timestampNow() }
+        if (last && last.role === 'assistant' && !last.intermediate && last.toolCalls.length === 0) {
+          next[next.length - 1] = { ...last, text: reply || last.text, time: timestampNow() }
+        } else if (last && last.role === 'assistant' && !reply) {
+          // 运行以工具调用收尾且无最终文本：保留现状，不产生空回复轮
         } else {
           next.push({
             role: 'assistant',
             text: reply ?? '',
             toolCalls: [],
+            intermediate: false,
             time: timestampNow(),
             model: activeModelRef.current,
           })
@@ -184,21 +204,35 @@ export function useAgentState() {
           void loadSessions()
           break
         case 'status':
-          setStatusLabel(runningStatusLabel(event.text))
           setRunning(true)
           setLoading(false)
+          setActivity(activityFromStatus(event.text))
           break
-        case 'token':
+        case 'token': {
+          setActivity((prev) =>
+            prev && prev.phase === 'streaming'
+              ? prev
+              : { phase: 'streaming', tool: null, startedAt: Date.now() },
+          )
           setMessages((prev) => {
             const next = [...prev]
+            const runStart = lastRunStart(next)
             const last = next[next.length - 1]
-            if (last && last.role === 'assistant') {
+            const inRun = runStart >= 0 && next.length - 1 > runStart
+            if (
+              last &&
+              last.role === 'assistant' &&
+              inRun &&
+              !last.intermediate &&
+              last.toolCalls.length === 0
+            ) {
               next[next.length - 1] = { ...last, text: last.text + event.delta }
             } else {
               next.push({
                 role: 'assistant',
                 text: event.delta,
                 toolCalls: [],
+                intermediate: false,
                 time: timestampNow(),
                 model: activeModelRef.current,
               })
@@ -206,20 +240,31 @@ export function useAgentState() {
             return next
           })
           break
+        }
         case 'tool_call':
           setMessages((prev) => {
             const next = [...prev]
+            const runStart = lastRunStart(next)
+            for (let k = runStart + 1; k < next.length; k++) {
+              const t = next[k]
+              if (t.role === 'assistant' && !t.intermediate) {
+                next[k] = { ...t, intermediate: true }
+              }
+            }
             const last = next[next.length - 1]
-            if (last && last.role === 'assistant') {
+            const inRun = runStart >= 0 && next.length - 1 > runStart
+            if (last && last.role === 'assistant' && inRun && last.toolCalls.length === 0) {
               next[next.length - 1] = {
                 ...last,
                 toolCalls: [...last.toolCalls, event.entry],
+                intermediate: true,
               }
             } else {
               next.push({
                 role: 'assistant',
                 text: '',
                 toolCalls: [event.entry],
+                intermediate: true,
                 time: timestampNow(),
                 model: activeModelRef.current,
               })
@@ -229,7 +274,7 @@ export function useAgentState() {
           break
         case 'pending_approval':
           setPendingApproval({ tool: event.tool, args: event.args })
-          clearRunState()
+          setActivity(null)
           break
         case 'done':
           applyDone(event.reply, event.usage)
@@ -374,7 +419,6 @@ export function useAgentState() {
         : text
     setInput('')
     setUploadedFiles([])
-    setStatusLabel('')
     setLoading(true)
     const effectiveModel = model || groupDefaults.model || null
     activeModelRef.current = effectiveModel
@@ -406,7 +450,7 @@ export function useAgentState() {
     if (offline) return
     const ok = channel.sendStop()
     if (ok) {
-      setStatusLabel('正在停止…')
+      setStopPending(true)
     } else {
       message.error('发送停止指令失败')
     }
@@ -464,7 +508,7 @@ export function useAgentState() {
     if (ok) {
       setPendingApproval(null)
       setRunning(true)
-      setStatusLabel(approve ? '正在执行批准的操作…' : '')
+      setActivity({ phase: 'thinking', tool: null, startedAt: Date.now() })
     } else {
       message.error('发送确认指令失败，请重试')
     }
@@ -549,7 +593,8 @@ export function useAgentState() {
     setInput,
     loading,
     running,
-    statusLabel,
+    activity,
+    stopPending,
     pendingApproval,
     renamingId,
     renameValue,

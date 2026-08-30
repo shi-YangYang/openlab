@@ -219,7 +219,9 @@ async def test_ws_chat_returns_tool_log(client, monkeypatch):
         done = events[-1]
         assert done["reply"] == "找到 1 篇论文。"
         assert token_text == done["reply"]
-        assert done["usage"]["message_count"] == 2
+        # spec-033 FR-4: the empty-text tool-call turn is now kept in history,
+        # so the count is user + tool turn + final reply.
+        assert done["usage"]["message_count"] == 3
 
 
 async def test_ws_pending_and_approve_endpoint(client, monkeypatch):

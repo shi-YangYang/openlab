@@ -1,11 +1,13 @@
-import { Button, Collapse, Empty, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import { Button, Collapse, Empty, Space, Tag, Tooltip, Typography } from 'antd'
 import { CopyOutlined, FileImageOutlined, FileOutlined, RobotOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
-import { isValidElement, type ReactNode, type RefObject } from 'react'
+import { isValidElement, useState, type ReactNode, type RefObject } from 'react'
 import { apiUrl } from '../../api'
-import type { AgentToolCall } from '../../types'
+import type { AgentPendingApproval, Turn } from '../../types'
+import type { AgentActivity } from './AgentRunningIndicator'
+import AgentRunningIndicator from './AgentRunningIndicator'
 import styles from './AgentPage.module.css'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
@@ -14,24 +16,21 @@ const STATUS_META: Record<string, { color: string; label: string }> = {
   rejected: { color: 'orange', label: '已拒绝' },
 }
 
-export interface Turn {
-  role: 'user' | 'assistant'
-  text: string
-  toolCalls: AgentToolCall[]
-  time?: string | null
-  model?: string | null
-  files?: string[]
-}
-
 interface AgentChatMessagesProps {
   messages: Turn[]
   loading: boolean
   running: boolean
-  statusLabel: string
+  activity: AgentActivity | null
+  pendingApproval: AgentPendingApproval | null
+  stopPending: boolean
   bottomRef: RefObject<HTMLDivElement>
   sessionId: string | null
   onCopyText: (text: string) => void
 }
+
+type Block =
+  | { kind: 'turn'; index: number; key: string }
+  | { kind: 'group'; start: number; end: number; key: string }
 
 export function formatValue(value: unknown): string {
   if (value == null) return ''
@@ -54,15 +53,38 @@ function nodeText(node: ReactNode): string {
   return ''
 }
 
+function splitBlocks(messages: Turn[]): Block[] {
+  const blocks: Block[] = []
+  let i = 0
+  while (i < messages.length) {
+    const turn = messages[i]
+    if (turn.role === 'assistant' && turn.intermediate) {
+      let j = i + 1
+      while (j < messages.length && messages[j].role === 'assistant' && messages[j].intermediate) j++
+      blocks.push({ kind: 'group', start: i, end: j, key: `g${i}` })
+      i = j
+    } else {
+      blocks.push({ kind: 'turn', index: i, key: `t${i}` })
+      i++
+    }
+  }
+  return blocks
+}
+
 export default function AgentChatMessages({
   messages,
   loading,
   running,
-  statusLabel,
+  activity,
+  pendingApproval,
+  stopPending,
   bottomRef,
   sessionId,
   onCopyText,
 }: AgentChatMessagesProps) {
+  const [manualTouched, setManualTouched] = useState<Record<string, boolean>>({})
+  const [manualOpen, setManualOpen] = useState<Record<string, boolean>>({})
+
   const markdownComponents: Components = {
     pre: ({ children }) => {
       const text = nodeText(children)
@@ -109,100 +131,176 @@ export default function AgentChatMessages({
     </div>
   )
 
-  return (
-    <div className={styles.messagesScroll}>
-      {messages.length === 0 && !loading && !running ? (
-        <Empty
-          className={styles.messagesEmpty}
-          image={<RobotOutlined className={styles.emptyIcon} />}
-          description="输入一个科研目标，Agent 将自主调用工具完成任务"
-        />
-      ) : (
-        <Space direction="vertical" size={32} className={styles.messagesList}>
-          {messages.map((turn, i) =>
-            turn.role === 'user' ? (
-              <div key={i} className={`${styles.turnWrap} ${styles.turnRowEnd}`}>
-                <div className={styles.userBubble}>
-                  {turn.text}
-                  {turn.files && turn.files.length > 0 && (
-                    <div className={styles.fileList}>
-                      {turn.files.map((f) => {
-                        const isImg = /\.(png|jpe?g|gif|webp|bmp)$/i.test(f)
-                        return (
-                          <a
-                            key={f}
-                            href={apiUrl(`/api/agent/sessions/${sessionId}/attachments/${encodeURIComponent(f)}`)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="file-chip"
-                          >
-                            {isImg ? <FileImageOutlined /> : <FileOutlined />}
-                            <span>{f.split('/').pop()}</span>
-                          </a>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-                {renderToolbar(turn, 'end')}
-              </div>
-            ) : (
-              <div key={i} className={`${styles.turnWrap} ${styles.turnRowStart}`}>
-                <div className={styles.assistantBubble}>
-                  {turn.text ? (
-                    <div className="markdown">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                        {turn.text}
-                      </ReactMarkdown>
-                    </div>
-                  ) : null}
-                  {turn.toolCalls.length > 0 && (
-                    <Collapse
-                      ghost
-                      size="small"
-                      defaultActiveKey={turn.toolCalls
-                        .map((c, j) =>
-                          ['error', 'rejected'].includes(c.status) ? `${i}-${j}` : null,
-                        )
-                        .filter(Boolean) as string[]}
-                      items={turn.toolCalls.map((call, j) => {
-                        const meta = STATUS_META[call.status] ?? {
-                          color: 'default',
-                          label: call.status,
-                        }
-                        return {
-                          key: `${i}-${j}`,
-                          label: (
-                            <Space size={6}>
-                              <Typography.Text code>{call.tool}</Typography.Text>
-                              <Tag color={meta.color}>{meta.label}</Tag>
-                            </Space>
-                          ),
-                          children: (
-                            <div className={styles.toolDetail}>
-                              <Typography.Text type="secondary">参数：</Typography.Text>
-                              <pre className={styles.toolPre}>{formatValue(call.args)}</pre>
-                              <Typography.Text type="secondary">结果：</Typography.Text>
-                              <pre className={styles.toolPre}>{formatValue(call.result)}</pre>
-                            </div>
-                          ),
-                        }
-                      })}
-                    />
-                  )}
-                </div>
-                {renderToolbar(turn, 'start')}
+  const renderToolCalls = (turn: Turn, keyPrefix: string) => {
+    if (turn.toolCalls.length === 0) return null
+    return (
+      <Collapse
+        ghost
+        size="small"
+        defaultActiveKey={turn.toolCalls
+          .map((c, j) =>
+            ['error', 'rejected'].includes(c.status) ? `${keyPrefix}-${j}` : null,
+          )
+          .filter(Boolean) as string[]}
+        items={turn.toolCalls.map((call, j) => {
+          const meta = STATUS_META[call.status] ?? {
+            color: 'default',
+            label: call.status,
+          }
+          return {
+            key: `${keyPrefix}-${j}`,
+            label: (
+              <Space size={6}>
+                <Typography.Text code>{call.tool}</Typography.Text>
+                <Tag color={meta.color}>{meta.label}</Tag>
+              </Space>
+            ),
+            children: (
+              <div className={styles.toolDetail}>
+                <Typography.Text type="secondary">参数：</Typography.Text>
+                <pre className={styles.toolPre}>{formatValue(call.args)}</pre>
+                <Typography.Text type="secondary">结果：</Typography.Text>
+                <pre className={styles.toolPre}>{formatValue(call.result)}</pre>
               </div>
             ),
-          )}
-          {(loading || running) && (
-            <div className={styles.statusRow}>
-              <Spin size="small" />
-              <Typography.Text type="secondary">
-                {statusLabel || 'Agent 正在执行…'}
-              </Typography.Text>
-            </div>
-          )}
+          }
+        })}
+      />
+    )
+  }
+
+  const renderMarkdown = (text: string) => (
+    <div className="markdown">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
+
+  const blocks = splitBlocks(messages)
+  const lastGroupKey = [...blocks].reverse().find((b) => b.kind === 'group')?.key ?? null
+
+  const isGroupOpen = (key: string) => {
+    if (manualTouched[key]) return !!manualOpen[key]
+    return running && key === lastGroupKey
+  }
+
+  const handleGroupToggle = (key: string, open: boolean) => {
+    setManualTouched((prev) => ({ ...prev, [key]: true }))
+    setManualOpen((prev) => ({ ...prev, [key]: open }))
+  }
+
+  const showIndicator =
+    !!pendingApproval || stopPending || !!activity || loading || running
+
+  const renderIndicator = (align: 'start' | 'end' = 'start') => {
+    if (!showIndicator) return null
+    return (
+      <AgentRunningIndicator
+        activity={activity}
+        pendingApproval={!!pendingApproval}
+        stopPending={stopPending}
+        fallbackVisible={loading || running}
+        align={align}
+      />
+    )
+  }
+
+  const renderGroup = (block: Block & { kind: 'group' }) => {
+    const turns = messages.slice(block.start, block.end)
+    const key = block.key
+    return (
+      <div key={key} className={styles.processGroup}>
+        <Collapse
+          ghost
+          size="small"
+          activeKey={isGroupOpen(key) ? [key] : []}
+          onChange={(keys) => {
+            const open = Array.isArray(keys) ? keys.includes(key) : keys === key
+            handleGroupToggle(key, open)
+          }}
+          items={[
+            {
+              key,
+              label: <span className={styles.processLabel}>思考与过程 · {turns.length} 步</span>,
+              children: (
+                <div className={styles.processBody}>
+                  {turns.map((turn, k) => (
+                    <div key={k} className={styles.processTurn}>
+                      {turn.text ? renderMarkdown(turn.text) : null}
+                      {renderToolCalls(turn, `${key}-${k}`)}
+                    </div>
+                  ))}
+                  {block.end === messages.length ? renderIndicator() : null}
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
+    )
+  }
+
+  const renderTurn = (block: Block & { kind: 'turn' }) => {
+    const turn = messages[block.index]
+    const isLast = block.index === messages.length - 1
+    if (turn.role === 'user') {
+      return (
+        <div key={block.key} className={`${styles.turnWrap} ${styles.turnRowEnd}`}>
+          <div className={styles.userBubble}>
+            {turn.text}
+            {turn.files && turn.files.length > 0 && (
+              <div className={styles.fileList}>
+                {turn.files.map((f) => {
+                  const isImg = /\.(png|jpe?g|gif|webp|bmp)$/i.test(f)
+                  return (
+                    <a
+                      key={f}
+                      href={apiUrl(`/api/agent/sessions/${sessionId}/attachments/${encodeURIComponent(f)}`)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="file-chip"
+                    >
+                      {isImg ? <FileImageOutlined /> : <FileOutlined />}
+                      <span>{f.split('/').pop()}</span>
+                    </a>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          {renderToolbar(turn, 'end')}
+          {isLast ? renderIndicator('end') : null}
+        </div>
+      )
+    }
+    return (
+      <div key={block.key} className={`${styles.turnWrap} ${styles.turnRowStart}`}>
+        <div className={styles.assistantBubble}>
+          {turn.text ? renderMarkdown(turn.text) : null}
+          {renderToolCalls(turn, block.key)}
+        </div>
+        {renderToolbar(turn, 'start')}
+        {isLast ? renderIndicator('start') : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className={styles.messagesScroll}>
+      {messages.length === 0 ? (
+        showIndicator ? (
+          <div className={styles.emptyIndicator}>{renderIndicator()}</div>
+        ) : (
+          <Empty
+            className={styles.messagesEmpty}
+            image={<RobotOutlined className={styles.emptyIcon} />}
+            description="输入一个科研目标，Agent 将自主调用工具完成任务"
+          />
+        )
+      ) : (
+        <Space direction="vertical" size={32} className={styles.messagesList}>
+          {blocks.map((block) => (block.kind === 'group' ? renderGroup(block) : renderTurn(block)))}
           <div ref={bottomRef} />
         </Space>
       )}

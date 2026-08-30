@@ -444,6 +444,10 @@ class AgentSessionMessage(BaseModel):
     content: str
     time: Optional[str] = None
     model: Optional[str] = None
+    # spec-033 FR-4: process/final split and rebuilt tool call cards.
+    # ``toolCalls`` uses camelCase to match the frontend turn type.
+    intermediate: bool = False
+    toolCalls: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentSessionDetail(AgentSessionItem):

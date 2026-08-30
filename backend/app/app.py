@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import database
+from .agent import sessions
 from .arxiv import ArxivClient
 from .config import settings
 from .routes import (
@@ -25,6 +26,9 @@ from .routes import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     database.init_db()
+    # Startup recovery (spec-033 FR-1): a fresh process cannot have live runs,
+    # so residual running/status flags are zombie state from a crash.
+    sessions.reset_running_states()
     app.state.arxiv_client = ArxivClient(
         interval=settings.arxiv_request_interval,
         max_retries=settings.arxiv_max_retries,
