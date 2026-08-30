@@ -1,7 +1,7 @@
 {
   "name": "openlab",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "openlab 科研 Agent 框架",
   "main": "dist-electron/main.js",
   "scripts": {
