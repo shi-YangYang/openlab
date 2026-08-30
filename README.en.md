@@ -10,6 +10,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![LangChain](https://img.shields.io/badge/🦜🔗-LangChain-green.svg)](https://www.langchain.com/)
+[![Electron](https://img.shields.io/badge/Electron-44-47848F.svg?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF.svg?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -20,7 +21,7 @@
 
 Open-source research agent framework: literature mining → hypothesis generation → experiment design → SSH deployment, fully automated.
 
-openlab puts the research workflow into a single web workbench: multi-platform literature search and download, LLM-powered paper analysis and reviews, innovation-point and experiment-plan generation, plus a streaming conversational agent that orchestrates all of the above on its own — with one-click deployment to remote GPU servers (SSH + web terminal).
+openlab puts the research workflow into a ready-to-use desktop workbench (Electron): multi-platform literature search and download, LLM-powered paper analysis and reviews, innovation-point and experiment-plan generation, plus a streaming conversational agent that orchestrates all of the above on its own — with one-click deployment to remote GPU servers (SSH + web terminal). The backend is bundled into the desktop client via PyInstaller; you can also run it from source.
 
 ## Table of Contents
 
@@ -57,22 +58,32 @@ The project follows spec-driven development (SDD) with a multi-agent workflow; t
 
 ## Install
 
-### Prerequisites
+### Option 1: Download the installer (recommended)
+
+Grab `openlab.Setup.<version>.exe` (Windows x64) from [Releases](https://github.com/shi-YangYang/openlab/releases/latest) and run the setup wizard.
+
+- The installer bundles the Python runtime and all backend dependencies via PyInstaller — **no Python / Node.js required**.
+- On launch, the Electron main process spawns the backend automatically with health checks and crash recovery; everything runs locally.
+- Pushing a `v*` tag triggers GitHub Actions to build and publish the matching installer; the release notes list the commits included in that version.
+
+### Option 2: Run from source
+
+#### Prerequisites
 
 - [Python](https://www.python.org/) 3.10+
 - [Node.js](https://nodejs.org/) 18+
 - Windows PowerShell (the one-click script is `.ps1`)
 
-### One-click start
+#### One-click start (Electron desktop client)
 
 ```powershell
 cd openlab
 .\start.ps1
 ```
 
-The script detects and installs missing dependencies (Python venv, backend pip packages, Node/npm packages), then starts backend + frontend in one terminal.
+The script detects and installs missing dependencies (Python venv, backend pip packages, Node/npm packages, electron), then starts the Electron desktop client (embedded frontend + auto-spawned backend).
 
-### Manual install
+#### Manual install (browser dev mode)
 
 ```powershell
 # Backend
@@ -92,11 +103,12 @@ npm run dev                  # http://localhost:5174
 ## Usage
 
 ```powershell
-.\start.ps1                  # backend 8001, frontend 5174
+.\start.ps1                  # desktop client, backend 8001
 .\start.ps1 -Port 9000       # custom backend port
+npm run dev                  # dev mode: open http://localhost:5174 in a browser
 ```
 
-Open <http://localhost:5174> and get started:
+The openlab desktop window opens automatically (in dev mode, open <http://localhost:5174> in a browser). Recommended first steps:
 
 1. **Configure LLM**: Settings → "LLM 配置" → create a config group (pick a platform preset or enter an OpenAI-compatible Base URL + API Key) → fetch models → pick default model & reasoning effort → save. Multiple groups let you switch platforms anytime.
 2. **Search literature**: use "直接搜索" (submit query as-is) or "AI 智能搜索" (LLM rewrites your topic into a precise query); select platforms and hit search, then batch-download results.
@@ -153,6 +165,7 @@ Open <http://localhost:5174> and get started:
 
 | Layer | Technology |
 |---|---|
+| Desktop | Electron (spawns backend + health checks + crash recovery + frameless window) |
 | Frontend | React 18 + TypeScript + Vite + Ant Design 5 |
 | Realtime | WebSocket (agent streaming, web terminal) |
 | Backend | Python + FastAPI (REST + WebSocket) |
@@ -160,8 +173,11 @@ Open <http://localhost:5174> and get started:
 | Data | SQLite (metadata/history) + local files (PDF/config) |
 | Crawling | httpx (arXiv Atom API / Semantic Scholar Graph API) + Playwright (Baidu/CNKI login sessions) |
 | Remote ops | paramiko (SSH/SFTP) |
+| Packaging | PyInstaller (backend) + electron-builder (NSIS installer), auto-built & published by GitHub Actions on tags |
 
 ```
+Electron main process (spawn backend / health check / crash restart / frameless window)
+        │
 frontend (React)  ──HTTP──▶  backend (FastAPI)
        │                          │
        ├── WebSocket ──▶ Agent streaming loop (LangChain astream)

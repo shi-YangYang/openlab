@@ -10,6 +10,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![LangChain](https://img.shields.io/badge/🦜🔗-LangChain-green.svg)](https://www.langchain.com/)
+[![Electron](https://img.shields.io/badge/Electron-44-47848F.svg?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF.svg?logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -20,7 +21,7 @@
 
 开源科研 Agent 框架：文献挖掘 → 假设生成 → 实验设计 → SSH 部署执行，全流程自动化。
 
-openlab 将科研流程装进一个浏览器工作台：多平台文献搜索与下载、LLM 论文分析与综述、创新点与实验方案生成，以及一个能自主调用工具完成上述全流程的流式对话 Agent，并支持一键部署到远程 GPU 服务器（SSH + Web 终端）。
+openlab 将科研流程装进一个开箱即用的桌面工作台（Electron）：多平台文献搜索与下载、LLM 论文分析与综述、创新点与实验方案生成，以及一个能自主调用工具完成上述全流程的流式对话 Agent，并支持一键部署到远程 GPU 服务器（SSH + Web 终端）。后端由 PyInstaller 打包内嵌于桌面客户端，也可源码运行。
 
 ## 目录
 
@@ -57,22 +58,32 @@ openlab 将科研流程装进一个浏览器工作台：多平台文献搜索与
 
 ## 安装
 
-### 前置依赖
+### 方式一：下载安装包（推荐）
+
+前往 [Releases](https://github.com/shi-YangYang/openlab/releases/latest) 下载 `openlab.Setup.<版本号>.exe`（Windows x64），双击按向导安装即可。
+
+- 安装包已通过 PyInstaller 内嵌 Python 运行时与全部后端依赖，**无需安装 Python / Node.js**。
+- 启动后由 Electron 主进程自动拉起后端、健康检查与崩溃自愈，前后端均在本地运行。
+- 打 tag（`v*`）推送后 GitHub Actions 会自动构建并发布对应版本安装包，Release 描述即该版本包含的 commit 列表。
+
+### 方式二：源码运行
+
+#### 前置依赖
 
 - [Python](https://www.python.org/) 3.10+
 - [Node.js](https://nodejs.org/) 18+
 - Windows PowerShell（一键脚本目前为 `.ps1`）
 
-### 一键启动
+#### 一键启动（Electron 桌面客户端）
 
 ```powershell
 cd openlab
 .\start.ps1
 ```
 
-脚本会自动检测并安装缺失依赖（Python 虚拟环境、后端 pip 包、Node/npm 包），然后合并输出启动前后端。
+脚本会自动检测并安装缺失依赖（Python 虚拟环境、后端 pip 包、Node/npm 包、electron），然后启动 Electron 桌面客户端（内嵌前端 + 自动拉起后端）。
 
-### 手动安装
+#### 手动安装（浏览器开发模式）
 
 ```powershell
 # 后端
@@ -92,11 +103,12 @@ npm run dev                  # http://localhost:5174
 ## 使用
 
 ```powershell
-.\start.ps1                  # 后端 8001，前端 5174
+.\start.ps1                  # 桌面客户端，后端 8001
 .\start.ps1 -Port 9000       # 自定义后端端口
+npm run dev                  # 开发模式：浏览器访问 http://localhost:5174
 ```
 
-浏览器打开 <http://localhost:5174>，建议按以下顺序上手：
+启动后 openlab 桌面窗口自动弹出（开发模式下在浏览器打开 <http://localhost:5174>），建议按以下顺序上手：
 
 1. **配置 LLM**：设置页 → 「LLM 配置」→ 新建配置组（选平台预设或填 OpenAI 兼容 Base URL + API Key）→「获取模型」拉取模型列表 → 选默认模型与思考强度 → 保存。支持多个配置组随时切换不同平台。
 2. **搜索文献**：搜索页选择「直接搜索」（原样提交各平台）或「AI 智能搜索」（LLM 把研究主题改写成检索式）；勾选平台后搜索，结果可多选下载。
@@ -153,6 +165,7 @@ npm run dev                  # http://localhost:5174
 
 | 层 | 技术 |
 |---|---|
+| 桌面端 | Electron（主进程拉起后端 + 健康检查 + 崩溃自愈 + 无边框窗口） |
 | 前端 | React 18 + TypeScript + Vite + Ant Design 5 |
 | 实时通信 | WebSocket（Agent 流式对话、Web 终端） |
 | 后端 | Python + FastAPI（REST + WebSocket） |
@@ -160,8 +173,11 @@ npm run dev                  # http://localhost:5174
 | 数据 | SQLite（元数据/历史）+ 本地文件（PDF/配置） |
 | 文献抓取 | httpx（arXiv Atom API / Semantic Scholar Graph API）+ Playwright（百度学术/知网登录态） |
 | 远程操作 | paramiko（SSH/SFTP） |
+| 打包分发 | PyInstaller（后端单目录）+ electron-builder（NSIS 安装包），GitHub Actions tag 自动构建发布 |
 
 ```
+Electron 主进程（拉起后端 / 健康检查 / 崩溃重启 / 无边框窗口）
+        │
 frontend (React)  ──HTTP──▶  backend (FastAPI)
        │                          │
        ├── WebSocket ──▶ Agent 流式循环（LangChain astream）
