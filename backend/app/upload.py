@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 
 from langchain_openai import ChatOpenAI
 
+from .llm import ainvoke_with_retry
 from .llm_config import get_effective_config
 from .schemas import PaperMetadata
 
@@ -74,17 +75,15 @@ async def extract_metadata(text: str) -> dict:
         raise ValueError("LLM_API_KEY is not configured")
 
     excerpt = text[:12000]
-    model_kwargs = {}
-    if cfg.get("reasoning_effort"):
-        model_kwargs["reasoning_effort"] = cfg["reasoning_effort"]
     llm = ChatOpenAI(
         base_url=cfg["base_url"],
         api_key=cfg["api_key"],
         model=cfg["model"],
         temperature=0.0,
-        model_kwargs=model_kwargs,
+        request_timeout=120.0,
+        reasoning_effort=cfg.get("reasoning_effort") or None,
     )
-    resp = await llm.ainvoke([("system", _SYSTEM_PROMPT), ("human", excerpt)])
+    resp = await ainvoke_with_retry(llm, [("system", _SYSTEM_PROMPT), ("human", excerpt)])
     raw = _content_to_str(resp.content)
     data = _parse_json(raw)
     return PaperMetadata.model_validate(data).model_dump()

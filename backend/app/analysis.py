@@ -21,6 +21,7 @@ from langchain_openai import ChatOpenAI
 
 from . import database
 from .config import settings
+from .llm import ainvoke_with_retry
 from .llm_config import get_effective_config
 from .pdf import extract_text
 from .schemas import PaperAnalysis, ReviewResult
@@ -100,19 +101,15 @@ async def _chat(messages: List[tuple], temperature: float = 0.2) -> str:
     if not cfg["api_key"]:
         raise ValueError("LLM_API_KEY is not configured")
 
-    model_kwargs = {}
-    if cfg.get("reasoning_effort"):
-        model_kwargs["reasoning_effort"] = cfg["reasoning_effort"]
-
     llm = ChatOpenAI(
         base_url=cfg["base_url"],
         api_key=cfg["api_key"],
         model=cfg["model"],
         temperature=temperature,
         request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
-        model_kwargs=model_kwargs,
+        reasoning_effort=cfg.get("reasoning_effort") or None,
     )
-    resp = await llm.ainvoke(messages)
+    resp = await ainvoke_with_retry(llm, messages)
     return _content_to_str(resp.content)
 
 

@@ -1,8 +1,10 @@
 """FastAPI application instance: lifespan, CORS, and router registration."""
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import database
 from .agent import sessions
@@ -22,6 +24,12 @@ from .routes import (
     translation,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,8 +41,10 @@ async def lifespan(app: FastAPI):
         interval=settings.arxiv_request_interval,
         max_retries=settings.arxiv_max_retries,
     )
+    logger.info("openlab backend 启动")
     yield
     await app.state.arxiv_client.aclose()
+    logger.info("openlab backend 关闭")
 
 
 app = FastAPI(title="openlab backend", version="0.1.0", lifespan=lifespan)
@@ -47,10 +57,22 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all for unhandled errors (spec-034 FR-4).
+
+    HTTPException and validation errors keep FastAPI's own handlers (more
+    specific registrations win); this only fires for truly unhandled ones.
+    """
+    logger.error(
+        "未处理异常: %s %s: %r", request.method, request.url.path, exc, exc_info=exc
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok"}
-
 
 # Registration order below mirrors the former single-module main.py. Greedy
 # ``{arxiv_id:path}`` ordering keeps .../translation/pdf (routes/translation.py)

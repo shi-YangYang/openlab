@@ -5,6 +5,7 @@ monitor_output) against a remote SSH server, streaming command output line by
 line to WebSocket observers and persisting an append-only, redacted log file.
 """
 import asyncio
+import logging
 import re
 import threading
 import time
@@ -17,6 +18,8 @@ from . import database
 from .config import settings
 from .redact import redact_secrets
 from .ssh import connect
+
+logger = logging.getLogger(__name__)
 
 STEPS = ["sync_code", "setup_env", "launch_training", "monitor_output"]
 
@@ -271,6 +274,9 @@ class ExperimentRunDriver:
                         await self._emit_status("stopped")
                     raise
                 except Exception as exc:  # noqa: BLE001 - surface to UI
+                    logger.error(
+                        "实验管线异常: run=%s", self.run_id, exc_info=exc
+                    )
                     await self._emit_status("failed", redact_secrets(str(exc)))
 
             self.task = asyncio.create_task(runner())
@@ -349,17 +355,25 @@ class ExperimentRunDriver:
                     if pid:
                         database.update_experiment_run(self.run_id, pid=pid)
                         await self._emit({"type": "log", "line": f"[PID] {pid}", "stream": "stdout"})
+                logger.info("实验步骤成功: run=%s step=%s", self.run_id, step)
                 await self._emit_step(step, "success")
                 return True
             if attempt < RETRY_AFTER_FAILURE:
                 await self._emit_step(step, "retrying")
                 await asyncio.sleep(1.0)
+        logger.warning(
+            "实验步骤失败: run=%s step=%s", self.run_id, step
+        )
         await self._emit_step(step, "failed", "\n".join(lines[-5:]))
         return False
 
     async def _pipeline(self, server_record: Dict[str, Any]) -> None:
         resume_from = getattr(self, "_resume_from", None) or STEPS[0]
         index = STEPS.index(resume_from)
+        logger.info(
+            "实验管线开始: run=%s step=%d/%d (%s)",
+            self.run_id, index + 1, len(STEPS), resume_from,
+        )
         for step in STEPS[index:]:
             if getattr(self, "_skip_steps", None) and step in self._skip_steps:
                 await self._emit_step(step, "skipped")
@@ -374,10 +388,12 @@ class ExperimentRunDriver:
                 if ok:
                     await self._emit_step(step, "success")
                 else:
+                    logger.warning("实验管线暂停: run=%s step=%s", self.run_id, step)
                     await self._emit_status("paused", f"步骤 {step} 执行失败")
                 return
             ok = await self._execute_step(server_record, step, self.steps.get(step, ""))
             if not ok:
+                logger.warning("实验管线暂停: run=%s step=%s", self.run_id, step)
                 await self._emit_status("paused", f"步骤 {step} 执行失败")
                 return
         await self._emit_status("running")

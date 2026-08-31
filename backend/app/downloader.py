@@ -1,5 +1,6 @@
 """PDF download and background job execution."""
 import asyncio
+import logging
 import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
@@ -10,6 +11,8 @@ from . import database
 from .config import settings
 from .llm_config import get_http_proxy
 from .platforms import LoginExpiredError, LoginRequiredError
+
+logger = logging.getLogger(__name__)
 
 
 def _failure_reason(exc: Exception) -> str:
@@ -98,6 +101,7 @@ async def run_download_job(papers: List[Dict[str, Any]]) -> None:
     client = httpx.AsyncClient(
         timeout=120.0, follow_redirects=True, proxy=get_http_proxy() or None
     )
+    logger.info("下载任务开始: %d 篇", len(papers))
     try:
         for paper in papers:
             arxiv_id = paper["arxiv_id"]
@@ -118,9 +122,12 @@ async def run_download_job(papers: List[Dict[str, Any]]) -> None:
                 )
                 database.set_status(arxiv_id, "downloaded", str(path))
                 database.set_download_progress(arxiv_id, 100)
+                logger.info("下载完成: %s", arxiv_id)
             except Exception as exc:  # noqa: BLE001 - record per-paper reason
-                database.set_status(arxiv_id, "failed", error=_failure_reason(exc))
+                reason = _failure_reason(exc)
+                database.set_status(arxiv_id, "failed", error=reason)
                 database.set_download_progress(arxiv_id, 0)
+                logger.warning("下载失败: %s (%s)", arxiv_id, reason)
     finally:
         await client.aclose()
 

@@ -134,6 +134,7 @@ async def _translate_chunk(chunk: str, language: str, index: int) -> str:
         api_key=cfg["api_key"],
         model=cfg["model"],
         temperature=0.1,
+        request_timeout=120.0,
     )
     resp = await llm.ainvoke([("system", _LANG_PROMPT.get(language, _LANG_PROMPT["zh"])), ("human", chunk)])
     content = resp.content
@@ -376,6 +377,7 @@ async def _translate_batch_blocks(payload: str, count: int, language: str) -> Li
         api_key=cfg["api_key"],
         model=cfg["model"],
         temperature=0.1,
+        request_timeout=120.0,
     )
     system = (
         _LANG_PROMPT.get(language, _LANG_PROMPT["zh"])

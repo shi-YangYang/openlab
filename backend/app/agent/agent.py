@@ -24,6 +24,7 @@ as ``interrupted`` (FR-4).
 """
 import asyncio
 import json
+import logging
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -37,6 +38,7 @@ from langchain_core.messages import (
 from langchain_openai import ChatOpenAI
 
 from .. import database
+from .. import llm as llm_utils
 from ..llm_config import get_effective_config, get_model_context_length
 from ..redact import redact_secrets as _redact_secrets
 from . import permissions as agent_permissions
@@ -52,6 +54,8 @@ from .sessions import (
     set_status,
     update_title,
 )
+
+logger = logging.getLogger(__name__)
 
 MAX_STEPS = 20
 LLM_REQUEST_TIMEOUT_SECONDS = 120.0
@@ -128,17 +132,14 @@ def build_llm(
     cfg = get_effective_config()
     if not cfg["api_key"]:
         raise AgentError("LLM_API_KEY is not configured", 400)
-    model_kwargs = {}
-    effort = reasoning_effort if reasoning_effort else cfg.get("reasoning_effort")
-    if effort:
-        model_kwargs["reasoning_effort"] = effort
+    effort = reasoning_effort or cfg.get("reasoning_effort") or None
     return ChatOpenAI(
         base_url=cfg["base_url"],
         api_key=cfg["api_key"],
         model=model or cfg["model"],
         temperature=0.2,
         request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
-        model_kwargs=model_kwargs,
+        reasoning_effort=effort,
     )
 
 
@@ -203,32 +204,61 @@ async def _stream_reply(
     """Run one LLM call, streaming text deltas via ``token`` events.
 
     Returns ``(AIMessage, usage_dict)``. Falls back to a single ``ainvoke``
-    when the LLM does not implement streaming (fakes/tests). Streaming chunks
-    may each carry ``usage_metadata``; their values are accumulated per call,
-    defaulting to zeros when the provider omits them.
+    (with transport-error retry) when the LLM does not implement streaming
+    (fakes/tests). The streaming path retries transient transport errors only
+    while no chunk has been produced yet (FR-2, spec-034): once the first
+    chunk arrived, any failure propagates so partial output is never replayed
+    nor duplicated. Streaming chunks may each carry ``usage_metadata``; their
+    values are accumulated per call, defaulting to zeros when the provider
+    omits them.
     """
     astream = getattr(llm, "astream", None)
     if not callable(astream):
-        response: AIMessage = await llm.ainvoke(messages)
+        response: AIMessage = await llm_utils.ainvoke_with_retry(llm, messages)
         content = _content_to_str(response.content)
         if content:
             await _safe_emit(emit, "token", {"delta": content})
         return response, dict(getattr(response, "usage_metadata", None) or {})
 
-    agg = None
-    prev_text = ""
-    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-    async for chunk in astream(messages):
-        meta = getattr(chunk, "usage_metadata", None)
-        if meta:
-            usage["input_tokens"] += int(meta.get("input_tokens") or 0)
-            usage["output_tokens"] += int(meta.get("output_tokens") or 0)
-            usage["total_tokens"] += int(meta.get("total_tokens") or 0)
-        agg = chunk if agg is None else agg + chunk
-        text = _content_to_str(getattr(agg, "content", ""))
-        if len(text) > len(prev_text):
-            await _safe_emit(emit, "token", {"delta": text[len(prev_text):]})
-            prev_text = text
+    attempt = 0
+    while True:
+        agg = None
+        prev_text = ""
+        usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        got_first_chunk = False
+        try:
+            async for chunk in astream(messages):
+                got_first_chunk = True
+                meta = getattr(chunk, "usage_metadata", None)
+                if meta:
+                    usage["input_tokens"] += int(meta.get("input_tokens") or 0)
+                    usage["output_tokens"] += int(meta.get("output_tokens") or 0)
+                    usage["total_tokens"] += int(meta.get("total_tokens") or 0)
+                agg = chunk if agg is None else agg + chunk
+                text = _content_to_str(getattr(agg, "content", ""))
+                if len(text) > len(prev_text):
+                    await _safe_emit(emit, "token", {"delta": text[len(prev_text):]})
+                    prev_text = text
+            break
+        except Exception as exc:  # noqa: BLE001 - retry decision below
+            retryable = llm_utils.is_retryable_exception(exc)
+            if not retryable or got_first_chunk or attempt >= llm_utils.LLM_MAX_RETRIES:
+                if retryable and not got_first_chunk:
+                    logger.warning(
+                        "LLM 流式调用重试 %d 次后仍失败: %r",
+                        llm_utils.LLM_MAX_RETRIES,
+                        exc,
+                    )
+                raise
+            attempt += 1
+            logger.warning(
+                "LLM 流式调用失败（首 chunk 前），%.1fs 后重试（第 %d/%d 次）: %r",
+                llm_utils.backoff_delay(attempt - 1),
+                attempt,
+                llm_utils.LLM_MAX_RETRIES,
+                exc,
+            )
+            await llm_utils.backoff_sleep(attempt - 1)
 
     content = _content_to_str(getattr(agg, "content", "")) if agg is not None else ""
     response = AIMessage(
@@ -332,6 +362,9 @@ async def _run_loop(
                 await _safe_emit(
                     emit_fn, "pending_approval", {"tool": name, "args": args}
                 )
+                logger.info(
+                    "审批发起: session=%s tool=%s", session.session_id, name
+                )
                 return {
                     "reply": None,
                     "tool_calls": log,
@@ -367,6 +400,7 @@ async def run_chat(
     emit: Optional[EmitFn] = None,
 ) -> Dict[str, Any]:
     session = get_or_create(session_id)
+    logger.info("Agent run 开始: session=%s", session.session_id)
     if session.pending is not None:
         raise AgentError("存在待确认的危险操作，请先处理确认或拒绝。", 409)
 
@@ -402,6 +436,7 @@ async def run_chat(
         )
     except asyncio.CancelledError:
         interrupted = True
+        logger.info("Agent run 被中断: session=%s", session.session_id)
         raise
     finally:
         set_running(session.session_id, False)
@@ -414,6 +449,7 @@ async def run_chat(
 
     if not interrupted:
         save_messages(session)  # persist assistant reply + tool results
+        logger.info("Agent run 结束: session=%s", session.session_id)
 
     result["session_id"] = session.session_id
     if not interrupted and result.get("pending_approval") is None:
@@ -451,6 +487,13 @@ async def run_approve(
     model = model or session.pending.get("model")
     reasoning_effort = reasoning_effort or session.pending.get("reasoning_effort")
     session.pending = None
+    logger.info(
+        "审批结果: session=%s approve=%s scope=%s calls=%d",
+        session_id,
+        approve,
+        scope,
+        len(pending_calls),
+    )
 
     if approve and scope == agent_permissions.SESSION_SCOPE:
         for tool_call in pending_calls:
@@ -499,6 +542,7 @@ async def run_approve(
         )
     except asyncio.CancelledError:
         interrupted = True
+        logger.info("Agent approve 被中断: session=%s", session_id)
         raise
     finally:
         set_running(session_id, False)

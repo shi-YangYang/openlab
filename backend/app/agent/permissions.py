@@ -16,6 +16,7 @@ A hardcoded safety floor can never be bypassed in any mode: the
 (gitignored, same policy as ``llm_config.json``).
 """
 import json
+import logging
 import os
 from datetime import datetime
 from fnmatch import fnmatchcase
@@ -23,6 +24,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 PERMISSIONS_FILENAME = "agent_permissions.json"
 
@@ -185,6 +188,10 @@ def save(mode: str, command_whitelist: Iterable[Any]) -> Dict[str, Any]:
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     _write(payload)
+    logger.info(
+        "权限配置更新: mode=%s whitelist=%d 项", payload["mode"],
+        len(payload["command_whitelist"]),
+    )
     return payload
 
 

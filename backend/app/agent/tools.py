@@ -358,7 +358,7 @@ async def run_experiment(experiment_id: int, server_id: str) -> Dict[str, Any]:
 
             llm = ChatOpenAI(
                 base_url=cfg["base_url"], api_key=cfg["api_key"],
-                model=cfg["model"], temperature=0.2,
+                model=cfg["model"], temperature=0.2, request_timeout=120.0,
             )
             prompt = (
                 "根据以下实验方案 JSON，生成在 Linux 服务器上执行的 setup_command"

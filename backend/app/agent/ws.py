@@ -8,10 +8,13 @@ reply and mark the session ``interrupted``; the runner then emits ``stopped``
 and re-raises so the task ends cancelled.
 """
 import asyncio
+import logging
 from typing import Any, Callable, Dict, Optional
 
 from . import agent as agent_module
 from .sessions import get_session
+
+logger = logging.getLogger(__name__)
 
 # Coroutine taking a JSON-serializable payload dict, e.g. the WS endpoint's
 # bounded ``send`` closure.
@@ -147,6 +150,7 @@ class AgentRunner:
             await self._emit(session_id, "error", {"message": str(exc)})
         except Exception as exc:  # noqa: BLE001 - surface as an error event
             message_text = agent_module._redact_secrets(str(exc)) or "执行失败"
+            logger.error("Agent run 异常: session=%s", session_id, exc_info=exc)
             await self._emit(session_id, "error", {"message": message_text})
         finally:
             await self._finalize_task(session_id)
@@ -177,6 +181,7 @@ class AgentRunner:
             await self._emit(session_id, "error", {"message": str(exc)})
         except Exception as exc:  # noqa: BLE001 - surface as an error event
             message_text = agent_module._redact_secrets(str(exc)) or "执行失败"
+            logger.error("Agent approve 异常: session=%s", session_id, exc_info=exc)
             await self._emit(session_id, "error", {"message": message_text})
         finally:
             await self._finalize_task(session_id)
