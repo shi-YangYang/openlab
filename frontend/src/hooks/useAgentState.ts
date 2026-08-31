@@ -137,6 +137,15 @@ export function useAgentState() {
           setRunning(false)
           setActivity(null)
         }
+        if (detail.pending) {
+          setPendingApproval({
+            tool: detail.pending.tool,
+            args: detail.pending.args,
+            forbidden: detail.pending.forbidden,
+          })
+        } else {
+          setPendingApproval(null)
+        }
       } catch (e) {
         setRunning(false)
         message.error(e instanceof Error ? e.message : '加载会话失败')
@@ -273,7 +282,11 @@ export function useAgentState() {
           })
           break
         case 'pending_approval':
-          setPendingApproval({ tool: event.tool, args: event.args })
+          setPendingApproval({
+            tool: event.tool,
+            args: event.args,
+            forbidden: event.forbidden,
+          })
           setActivity(null)
           break
         case 'done':

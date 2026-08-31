@@ -275,6 +275,7 @@ async def test_approve_scope_session_allows_rest_of_session(monkeypatch):
     assert first["pending_approval"] == {
         "tool": "run_command",
         "args": {"server_id": "s1", "command": "pip install x"},
+        "forbidden": False,
     }
     assert sessions.get_session(first["session_id"]).allowed_tools == set()
 
@@ -309,6 +310,7 @@ async def test_approve_scope_session_isolated_and_not_persisted(monkeypatch):
     assert other["pending_approval"] == {
         "tool": "run_command",
         "args": {"server_id": "s2", "command": "pip install x"},
+        "forbidden": False,
     }
     assert sessions.get_session(other["session_id"]).allowed_tools == set()
     assert len(executed) == 1
@@ -343,6 +345,7 @@ async def test_session_scope_cannot_bypass_safety_floor(monkeypatch):
     assert second["pending_approval"] == {
         "tool": "run_command",
         "args": {"server_id": "s1", "command": "shutdown now"},
+        "forbidden": True,
     }
     assert len(executed) == 1
 
@@ -371,6 +374,7 @@ async def test_approve_default_scope_is_once_only(monkeypatch):
     assert second["pending_approval"] == {
         "tool": "run_command",
         "args": {"server_id": "s1", "command": "pip install x"},
+        "forbidden": False,
     }
     assert len(executed) == 1
 
@@ -532,5 +536,6 @@ async def test_api_mode_change_takes_effect_next_tool_call(client, monkeypatch):
     assert second["pending_approval"] == {
         "tool": "run_command",
         "args": {"server_id": "s1", "command": "pip install x"},
+        "forbidden": False,
     }
     assert len(executed) == 1

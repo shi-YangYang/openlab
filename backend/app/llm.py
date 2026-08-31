@@ -5,13 +5,13 @@ Uses LangChain's ``ChatOpenAI`` pointed at any OpenAI-compatible endpoint via
 configuration (see ``llm_config.get_effective_config``).
 """
 import asyncio
-import json
 import logging
 from typing import Any, List
 
 from langchain_openai import ChatOpenAI
 
 from .llm_config import get_effective_config
+from .llm_json import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +110,11 @@ _SYSTEM_PROMPT = (
 
 def _parse_content(content: str) -> str:
     text = content.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.lstrip("json").strip()
     try:
-        data = json.loads(text)
+        data = parse_llm_json(text)
         if isinstance(data, dict) and isinstance(data.get("query"), str):
             return data["query"].strip()
-    except json.JSONDecodeError:
+    except ValueError:
         pass
     return text
 

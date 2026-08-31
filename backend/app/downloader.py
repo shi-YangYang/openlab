@@ -14,6 +14,12 @@ from .platforms import LoginExpiredError, LoginRequiredError
 
 logger = logging.getLogger(__name__)
 
+# Concurrent PDF downloads within one batch job (spec-035 FR-1). Progress,
+# failure recording and idempotent skipping keep per-paper semantics; the db
+# layer uses one short-lived connection per write, so concurrent coroutines
+# are safe (NFR-2).
+DOWNLOAD_CONCURRENCY = 3
+
 
 def _failure_reason(exc: Exception) -> str:
     """Map a download exception to a short, human-readable failure reason."""
@@ -91,43 +97,54 @@ async def download_pdf(
     return path
 
 
+async def _download_job_one(
+    paper: Dict[str, Any],
+    client: httpx.AsyncClient,
+    semaphore: asyncio.Semaphore,
+) -> None:
+    """Download one paper under the batch semaphore, recording status/progress."""
+    arxiv_id = paper["arxiv_id"]
+    async with semaphore:
+        if is_downloaded(arxiv_id):
+            database.set_status(arxiv_id, "downloaded")
+            database.set_download_progress(arxiv_id, 100)
+            return
+
+        database.set_status(arxiv_id, "downloading")
+        database.set_download_progress(arxiv_id, 0)
+
+        async def on_progress(progress: int, _id: str = arxiv_id) -> None:
+            database.set_download_progress(_id, progress)
+
+        try:
+            path = await _download_one(paper, client, on_progress=on_progress)
+            database.set_status(arxiv_id, "downloaded", str(path))
+            database.set_download_progress(arxiv_id, 100)
+            logger.info("下载完成: %s", arxiv_id)
+        except Exception as exc:  # noqa: BLE001 - record per-paper reason
+            reason = _failure_reason(exc)
+            database.set_status(arxiv_id, "failed", error=reason)
+            database.set_download_progress(arxiv_id, 0)
+            logger.warning("下载失败: %s (%s)", arxiv_id, reason)
+
+
 async def run_download_job(papers: List[Dict[str, Any]]) -> None:
-    """Download a batch of PDFs, updating status in the database.
+    """Download a batch of PDFs concurrently, updating status in the database.
 
     Papers already downloaded are skipped (their status is kept as
     ``downloaded``). Failures are recorded with status ``failed``. Per-paper
-    progress is written to ``papers.progress`` (FR-15).
+    progress is written to ``papers.progress`` (FR-15). At most
+    ``DOWNLOAD_CONCURRENCY`` papers download at once (spec-035 FR-1).
     """
     client = httpx.AsyncClient(
         timeout=120.0, follow_redirects=True, proxy=get_http_proxy() or None
     )
     logger.info("下载任务开始: %d 篇", len(papers))
+    semaphore = asyncio.Semaphore(DOWNLOAD_CONCURRENCY)
     try:
-        for paper in papers:
-            arxiv_id = paper["arxiv_id"]
-            if is_downloaded(arxiv_id):
-                database.set_status(arxiv_id, "downloaded")
-                database.set_download_progress(arxiv_id, 100)
-                continue
-
-            database.set_status(arxiv_id, "downloading")
-            database.set_download_progress(arxiv_id, 0)
-
-            async def on_progress(progress: int, _id: str = arxiv_id) -> None:
-                database.set_download_progress(_id, progress)
-
-            try:
-                path = await _download_one(
-                    paper, client, on_progress=on_progress
-                )
-                database.set_status(arxiv_id, "downloaded", str(path))
-                database.set_download_progress(arxiv_id, 100)
-                logger.info("下载完成: %s", arxiv_id)
-            except Exception as exc:  # noqa: BLE001 - record per-paper reason
-                reason = _failure_reason(exc)
-                database.set_status(arxiv_id, "failed", error=reason)
-                database.set_download_progress(arxiv_id, 0)
-                logger.warning("下载失败: %s (%s)", arxiv_id, reason)
+        await asyncio.gather(
+            *(_download_job_one(paper, client, semaphore) for paper in papers)
+        )
     finally:
         await client.aclose()
 

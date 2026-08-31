@@ -228,6 +228,22 @@ def matches_whitelist(command: str, whitelist: Iterable[str]) -> bool:
     return any(fnmatchcase(command, pattern) for pattern in whitelist)
 
 
+def is_forbidden(tool: str, args: Any) -> bool:
+    """True when a call hits the hardcoded safety floor (spec-035 FR-5).
+
+    Blacklisted tools (``delete_server``) and destructive command patterns
+    always ask for approval regardless of mode; ``forbidden`` marks such calls
+    in the ``pending_approval`` payload so the UI can hide the session-level
+    allow shortcut (fail-closed honesty, not a new permission path).
+    """
+    if tool in FORBIDDEN_TOOLS:
+        return True
+    command = command_from_args(args)
+    if tool in COMMAND_TOOLS and command and matches_forbidden_command(command):
+        return True
+    return False
+
+
 def evaluate(
     tool: str,
     args: Any,

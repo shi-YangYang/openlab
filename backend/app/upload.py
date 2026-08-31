@@ -5,13 +5,13 @@ which is parsed and validated with a pydantic model. Reuses
 ``llm_config.get_effective_config`` (OpenAI-compatible via LangChain), the same
 as spec-001/002.
 """
-import json
-from typing import Any, Dict, List
+from typing import Any, List
 
 from langchain_openai import ChatOpenAI
 
 from .llm import ainvoke_with_retry
 from .llm_config import get_effective_config
+from .llm_json import parse_llm_json
 from .schemas import PaperMetadata
 
 _SYSTEM_PROMPT = (
@@ -40,34 +40,6 @@ def _content_to_str(content: Any) -> str:
     return str(content)
 
 
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.lstrip("json").strip()
-    return text
-
-
-def _parse_json(text: str) -> Dict[str, Any]:
-    text = _strip_fences(text)
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
-        pass
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        try:
-            data = json.loads(text[start : end + 1])
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
-    raise ValueError("LLM response is not valid JSON")
-
-
 async def extract_metadata(text: str) -> dict:
     """Extract ``{title, authors, abstract, published}`` from PDF text via LLM."""
     cfg = get_effective_config()
@@ -85,5 +57,4 @@ async def extract_metadata(text: str) -> dict:
     )
     resp = await ainvoke_with_retry(llm, [("system", _SYSTEM_PROMPT), ("human", excerpt)])
     raw = _content_to_str(resp.content)
-    data = _parse_json(raw)
-    return PaperMetadata.model_validate(data).model_dump()
+    return parse_llm_json(raw, PaperMetadata, container="object").model_dump()

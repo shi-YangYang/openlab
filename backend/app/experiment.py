@@ -23,6 +23,7 @@ from langchain_openai import ChatOpenAI
 from . import database
 from .llm import ainvoke_with_retry
 from .llm_config import get_effective_config
+from .llm_json import parse_llm_json
 from .schemas import ExperimentPlan
 
 MAX_RETRIES = 2
@@ -48,35 +49,6 @@ def _content_to_str(content: Any) -> str:
             for item in content
         )
     return str(content)
-
-
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.lstrip("json").strip()
-    return text
-
-
-def _parse_json_array(text: str) -> List[Dict[str, Any]]:
-    """Parse an LLM response into a list of JSON objects, tolerating fences."""
-    text = _strip_fences(text)
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            return [data]
-    except json.JSONDecodeError:
-        pass
-    start = text.find("[")
-    end = text.rfind("]")
-    if start != -1 and end != -1 and end > start:
-        try:
-            return json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            pass
-    raise ValueError("LLM response is not a valid JSON array")
 
 
 async def _chat(messages: List[tuple], temperature: float = 0.3) -> str:
@@ -168,7 +140,7 @@ async def generate_experiments(
     for attempt in range(MAX_RETRIES + 1):
         raw = await _chat(messages, temperature=0.3)
         try:
-            items = _parse_json_array(raw)
+            items = parse_llm_json(raw, container="array")
             plans = [ExperimentPlan.model_validate(item) for item in items]
             if not plans:
                 raise ValueError("empty experiment plan list")

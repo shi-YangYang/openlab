@@ -372,6 +372,7 @@ export interface Turn {
 export interface AgentPendingApproval {
   tool: string
   args: Record<string, unknown>
+  forbidden?: boolean
 }
 
 export interface AgentUsageInfo {
@@ -386,7 +387,7 @@ export type AgentWsEvent =
   | { type: 'status'; text: string }
   | { type: 'token'; delta: string }
   | { type: 'tool_call'; entry: AgentToolCall }
-  | { type: 'pending_approval'; tool: string; args: Record<string, unknown> }
+  | { type: 'pending_approval'; tool: string; args: Record<string, unknown>; forbidden?: boolean }
   | { type: 'compacted' }
   | { type: 'done'; reply: string | null; usage: AgentUsageInfo }
   | { type: 'stopped' }
@@ -422,6 +423,7 @@ export interface AgentSessionUsage {
 export interface AgentSessionDetail extends AgentSessionItem {
   messages: AgentSessionMessage[]
   usage?: AgentSessionUsage
+  pending?: AgentPendingApproval | null
 }
 
 export type AgentPermissionMode = 'conservative' | 'standard' | 'full'

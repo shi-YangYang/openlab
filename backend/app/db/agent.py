@@ -1,4 +1,5 @@
 """CRUD helpers for the agent_sessions table."""
+import json
 import sqlite3
 from typing import Any, Dict, List, Optional
 
@@ -55,6 +56,7 @@ def get_agent_session(session_id: str) -> Optional[Dict[str, Any]]:
             return None
         data = _agent_session_item(row)
         data["messages"] = row["messages"] or "[]"
+        data["pending"] = row["pending"]
         data["input_tokens"] = row["input_tokens"] or 0
         data["output_tokens"] = row["output_tokens"] or 0
         data["last_input_tokens"] = row["last_input_tokens"] or 0
@@ -140,6 +142,27 @@ def set_agent_session_status(session_id: str, status: str) -> None:
         conn.execute(
             "UPDATE agent_sessions SET status = ? WHERE id = ?",
             (status, session_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_agent_session_pending(
+    session_id: str, pending: Optional[Dict[str, Any]]
+) -> None:
+    """Persist (or clear) the session's pending approval payload (spec-035 FR-2).
+
+    ``pending`` is JSON-serialised as-is; ``None`` clears the column. Called
+    whenever the in-memory ``session.pending`` changes so the approval state
+    survives a restart.
+    """
+    raw = json.dumps(pending, ensure_ascii=False) if pending is not None else None
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE agent_sessions SET pending = ? WHERE id = ?",
+            (raw, session_id),
         )
         conn.commit()
     finally:

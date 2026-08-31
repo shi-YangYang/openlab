@@ -135,6 +135,7 @@ async def test_dangerous_tool_pauses_then_approve_executes(monkeypatch):
     assert first["pending_approval"] == {
         "tool": "run_command",
         "args": {"server_id": "s1", "command": "ls"},
+        "forbidden": False,
     }
     assert executed == []
 

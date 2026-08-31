@@ -2,8 +2,9 @@
 
 A session holds the LangChain message history (persisted to the ``agent_sessions``
 table) and any pending (dangerous) tool call awaiting user approval. The pending
-approval state is transient and kept in an in-process cache only, while the
-conversation history survives a restart.
+approval state is persisted to the ``agent_sessions.pending`` column (spec-035
+FR-2) so it survives a restart; the in-process cache keeps it handy across
+requests (chat -> approve), while the conversation history lives in the DB.
 """
 import json
 import uuid
@@ -56,7 +57,24 @@ def _deserialize(raw: Optional[str]) -> List[BaseMessage]:
 def _to_session(record: Dict[str, Any]) -> Session:
     session = Session(record["id"], record.get("title") or "")
     session.messages = _deserialize(record.get("messages"))
+    session.pending = _deserialize_pending(record.get("pending"))
     return session
+
+
+def _deserialize_pending(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return data if isinstance(data, dict) and data.get("tool_calls") else None
+
+
+def set_pending(session: Session, pending: Optional[Dict[str, Any]]) -> None:
+    """Update the session's pending approval state and persist it (FR-2)."""
+    session.pending = pending
+    database.set_agent_session_pending(session.session_id, pending)
 
 
 def create_session(session_id: Optional[str] = None, title: Optional[str] = None) -> Session:
@@ -275,6 +293,16 @@ def get_session_detail(session_id: str) -> Optional[Dict[str, Any]]:
     output_tokens = int(record.get("output_tokens") or 0)
     last_input_tokens = int(record.get("last_input_tokens") or 0)
     last_output_tokens = int(record.get("last_output_tokens") or 0)
+    pending_raw = _deserialize_pending(record.get("pending"))
+    pending = None
+    if pending_raw is not None:
+        first = pending_raw["tool_calls"][0]
+        args = first.get("args")
+        pending = {
+            "tool": first.get("name"),
+            "args": args if isinstance(args, dict) else {},
+            "forbidden": bool(pending_raw.get("forbidden")),
+        }
     return {
         "id": record["id"],
         "title": record["title"] or "",
@@ -283,6 +311,7 @@ def get_session_detail(session_id: str) -> Optional[Dict[str, Any]]:
         "running": bool(record.get("running")),
         "status": record.get("status") or "",
         "messages": history,
+        "pending": pending,
         "usage": {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,

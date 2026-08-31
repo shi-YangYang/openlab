@@ -453,6 +453,9 @@ class AgentSessionMessage(BaseModel):
 class AgentSessionDetail(AgentSessionItem):
     messages: List[AgentSessionMessage] = Field(default_factory=list)
     usage: Optional[Dict[str, int]] = None
+    # spec-035 FR-2: persisted pending approval, restored on restart. Shape is
+    # the UI-facing first call: {tool, args, forbidden} (FR-5); None if none.
+    pending: Optional[Dict[str, Any]] = None
 
 
 class AgentPermissions(BaseModel):

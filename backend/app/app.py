@@ -37,6 +37,10 @@ async def lifespan(app: FastAPI):
     # Startup recovery (spec-033 FR-1): a fresh process cannot have live runs,
     # so residual running/status flags are zombie state from a crash.
     sessions.reset_running_states()
+    # Startup recovery (spec-035 FR-1/FR-4): residual ``downloading`` papers
+    # and ``running``/``paused`` experiment runs are zombie state too.
+    database.reset_stale_downloads()
+    database.reset_stale_experiment_runs()
     app.state.arxiv_client = ArxivClient(
         interval=settings.arxiv_request_interval,
         max_retries=settings.arxiv_max_retries,

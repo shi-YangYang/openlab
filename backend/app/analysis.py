@@ -23,6 +23,7 @@ from . import database
 from .config import settings
 from .llm import ainvoke_with_retry
 from .llm_config import get_effective_config
+from .llm_json import parse_llm_json
 from .pdf import extract_text
 from .schemas import PaperAnalysis, ReviewResult
 
@@ -69,31 +70,6 @@ def _content_to_str(content: Any) -> str:
             for item in content
         )
     return str(content)
-
-
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.lstrip("json").strip()
-    return text
-
-
-def _parse_json(text: str) -> Dict[str, Any]:
-    """Parse an LLM response into a JSON object, tolerating code fences."""
-    text = _strip_fences(text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        try:
-            return json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            pass
-    raise ValueError("LLM response is not valid JSON")
 
 
 async def _chat(messages: List[tuple], temperature: float = 0.2) -> str:
@@ -195,7 +171,7 @@ async def _analyze_chunk(text: str, language: str) -> PaperAnalysis:
     for attempt in range(MAX_RETRIES + 1):
         raw = await _chat(messages, temperature=0.2)
         try:
-            return PaperAnalysis.model_validate(_parse_json(raw))
+            return parse_llm_json(raw, PaperAnalysis, container="object")
         except Exception:
             if attempt >= MAX_RETRIES:
                 raise
@@ -244,7 +220,7 @@ async def analyze_paper_text(
     for attempt in range(MAX_RETRIES + 1):
         raw = await _chat(messages, temperature=0.2)
         try:
-            result = PaperAnalysis.model_validate(_parse_json(raw))
+            result = parse_llm_json(raw, PaperAnalysis, container="object")
             await report(100, "分析完成")
             return result
         except Exception:
@@ -317,7 +293,7 @@ async def generate_review(arxiv_ids: List[str], language: str) -> ReviewResult:
     for attempt in range(MAX_RETRIES + 1):
         raw = await _chat(messages, temperature=0.2)
         try:
-            return ReviewResult.model_validate(_parse_json(raw))
+            return parse_llm_json(raw, ReviewResult, container="object")
         except Exception:
             if attempt >= MAX_RETRIES:
                 raise

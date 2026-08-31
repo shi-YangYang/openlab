@@ -53,6 +53,24 @@ function nodeText(node: ReactNode): string {
   return ''
 }
 
+// djb2: stable 32-bit hash over content, so group keys survive message
+// insertion (index-based keys would shift groups and leak manual open state).
+function hash32(input: string): string {
+  let hash = 5381
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash + input.charCodeAt(i)) | 0
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function groupKeyOf(turn: Turn): string {
+  const call = turn.toolCalls[0]
+  const callPart = call
+    ? `${call.tool}|${call.status}|${formatValue(call.args).slice(0, 64)}`
+    : ''
+  return hash32(`${turn.time ?? ''}|${(turn.text || '').slice(0, 32)}|${callPart}`)
+}
+
 function splitBlocks(messages: Turn[]): Block[] {
   const blocks: Block[] = []
   let i = 0
@@ -61,7 +79,7 @@ function splitBlocks(messages: Turn[]): Block[] {
     if (turn.role === 'assistant' && turn.intermediate) {
       let j = i + 1
       while (j < messages.length && messages[j].role === 'assistant' && messages[j].intermediate) j++
-      blocks.push({ kind: 'group', start: i, end: j, key: `g${i}` })
+      blocks.push({ kind: 'group', start: i, end: j, key: `g${groupKeyOf(messages[i])}` })
       i = j
     } else {
       blocks.push({ kind: 'turn', index: i, key: `t${i}` })

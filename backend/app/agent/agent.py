@@ -50,6 +50,7 @@ from .sessions import (
     get_session,
     normalize_history,
     save_messages,
+    set_pending,
     set_running,
     set_status,
     update_title,
@@ -352,23 +353,39 @@ async def _run_loop(
             name = tool_call.get("name")
             args = tool_call.get("args") or {}
             if agent_tools.is_dangerous(name) and _needs_approval(session, name, args):
-                session.pending = {
-                    "tool_calls": [
-                        _tool_call_to_dict(tc) for tc in tool_calls[index:]
-                    ],
-                    "model": model,
-                    "reasoning_effort": reasoning_effort,
-                }
-                await _safe_emit(
-                    emit_fn, "pending_approval", {"tool": name, "args": args}
+                pending_calls = [
+                    _tool_call_to_dict(tc) for tc in tool_calls[index:]
+                ]
+                # spec-035 FR-5: flag calls hitting the safety floor (blacklist
+                # tool / forbidden command) so the UI can hide the session-level
+                # allow shortcut. Any forbidden call in the batch marks the
+                # whole approval, since approving executes all of them.
+                forbidden = any(
+                    agent_permissions.is_forbidden(call.get("name"), call.get("args"))
+                    for call in pending_calls
                 )
+                set_pending(
+                    session,
+                    {
+                        "tool_calls": pending_calls,
+                        "model": model,
+                        "reasoning_effort": reasoning_effort,
+                        "forbidden": forbidden,
+                    },
+                )
+                pending_payload = {
+                    "tool": name,
+                    "args": args,
+                    "forbidden": forbidden,
+                }
+                await _safe_emit(emit_fn, "pending_approval", pending_payload)
                 logger.info(
                     "审批发起: session=%s tool=%s", session.session_id, name
                 )
                 return {
                     "reply": None,
                     "tool_calls": log,
-                    "pending_approval": {"tool": name, "args": args},
+                    "pending_approval": pending_payload,
                     "usage": dict(call_usage),
                 }
 
@@ -486,7 +503,7 @@ async def run_approve(
     pending_calls = session.pending["tool_calls"]
     model = model or session.pending.get("model")
     reasoning_effort = reasoning_effort or session.pending.get("reasoning_effort")
-    session.pending = None
+    set_pending(session, None)
     logger.info(
         "审批结果: session=%s approve=%s scope=%s calls=%d",
         session_id,

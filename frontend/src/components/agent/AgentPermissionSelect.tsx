@@ -17,7 +17,7 @@ const MODE_HINTS: Record<AgentPermissionMode, string> = {
 
 export default function AgentPermissionSelect() {
   const { modal } = AntApp.useApp()
-  const { mode, loaded, updateMode } = usePermissions()
+  const { mode, loaded, error, updateMode, reload } = usePermissions()
 
   const handleChange = (value: AgentPermissionMode) => {
     if (value === mode) return
@@ -36,6 +36,29 @@ export default function AgentPermissionSelect() {
     void updateMode(value)
   }
 
+  if (!loaded && error) {
+    return (
+      <Tooltip title={`权限加载失败：${error}，点击重试`}>
+        <span
+          onClick={() => reload()}
+          style={{ cursor: 'pointer', display: 'inline-flex' }}
+          role="button"
+        >
+          <Select
+            size="small"
+            disabled
+            className={`${styles.permissionSelect} ${styles.permissionSelectDanger}`}
+            value={undefined}
+            placeholder="权限加载失败，点击重试"
+            style={{ minWidth: 168 }}
+            options={MODE_OPTIONS}
+            popupMatchSelectWidth={false}
+          />
+        </span>
+      </Tooltip>
+    )
+  }
+
   return (
     <Tooltip title={MODE_HINTS[mode]}>
       <Select
@@ -47,7 +70,7 @@ export default function AgentPermissionSelect() {
         }
         value={mode}
         onChange={handleChange}
-        loading={!loaded}
+        loading={!loaded && !error}
         options={MODE_OPTIONS}
         popupMatchSelectWidth={false}
       />

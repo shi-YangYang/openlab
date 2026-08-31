@@ -17,6 +17,7 @@ from .. import analysis, database, downloader, experiment, innovation, monitor, 
 from ..arxiv import ArxivClient
 from ..config import settings
 from ..llm import decompose_topic
+from ..llm_json import parse_llm_json
 from ..search.aggregator import ALL_PLATFORMS, search as aggregate_search
 from . import sandbox
 
@@ -375,14 +376,11 @@ async def run_experiment(experiment_id: int, server_id: str) -> Dict[str, Any]:
                 )
             else:
                 text = str(raw)
-            start = text.find("{")
-            end = text.rfind("}")
-            if start != -1 and end != -1:
-                parsed = json.loads(text[start : end + 1])
-                if parsed.get("setup_command"):
-                    steps["setup_env"] = parsed["setup_command"]
-                if parsed.get("launch_command"):
-                    steps["launch_training"] = parsed["launch_command"]
+            parsed = parse_llm_json(text, container="object")
+            if parsed.get("setup_command"):
+                steps["setup_env"] = parsed["setup_command"]
+            if parsed.get("launch_command"):
+                steps["launch_training"] = parsed["launch_command"]
     except Exception:
         pass  # fall back to defaults silently; user can edit later
 

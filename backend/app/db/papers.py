@@ -108,6 +108,25 @@ def set_download_progress(arxiv_id: str, progress: int) -> None:
         conn.close()
 
 
+def reset_stale_downloads() -> int:
+    """Mark residual ``downloading`` papers as failed (startup recovery).
+
+    A fresh process cannot have live downloads, so any ``downloading`` row is
+    zombie state left by a crash or kill (spec-035 FR-1). Returns the number
+    of rows reset.
+    """
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "UPDATE papers SET status = 'failed', error = '应用重启中断' "
+            "WHERE status = 'downloading'"
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def delete_paper(arxiv_id: str) -> bool:
     """Delete a paper and its analyses. Returns True if the paper was removed."""
     conn = _connect()

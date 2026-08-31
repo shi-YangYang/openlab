@@ -234,6 +234,26 @@ def update_experiment_run(run_id: int, **fields: Any) -> Optional[Dict[str, Any]
         conn.close()
 
 
+def reset_stale_experiment_runs() -> int:
+    """Mark residual ``running``/``paused`` runs as interrupted (startup recovery).
+
+    Live runs are owned by the in-memory ``_drivers`` dict (spec-035 FR-4);
+    after a restart none can be alive. ``paused`` runs are reset too because
+    resuming needs the driver's in-memory step commands (``self.steps``), which
+    do not survive a restart. Returns the number of rows reset.
+    """
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "UPDATE experiment_runs SET status = 'interrupted', "
+            "error = '应用重启，运行中断' WHERE status IN ('running', 'paused')"
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def delete_experiment_run(run_id: int) -> bool:
     conn = _connect()
     try:

@@ -26,8 +26,32 @@ export default function AgentApprovalModal({
   onApprove,
   offline,
 }: AgentApprovalModalProps) {
+  const forbidden = !!pendingApproval?.forbidden
   const approvalCommand = pendingApproval ? extractCommand(pendingApproval.args) : null
   const argsText = pendingApproval ? formatValue(pendingApproval.args) : ''
+
+  const footer = [
+    <Button key="reject" danger disabled={offline} onClick={() => onApprove(false, 'once')}>
+      拒绝
+    </Button>,
+  ]
+  if (!forbidden) {
+    footer.push(
+      <Button
+        key="session"
+        disabled={offline}
+        onClick={() => onApprove(true, 'session')}
+        title="本次会话内该工具不再询问（破坏性命令黑名单除外）"
+      >
+        本会话允许
+      </Button>,
+    )
+  }
+  footer.push(
+    <Button key="once" type="primary" disabled={offline} onClick={() => onApprove(true, 'once')}>
+      允许一次
+    </Button>,
+  )
 
   return (
     <Modal
@@ -35,22 +59,7 @@ export default function AgentApprovalModal({
       open={!!pendingApproval}
       closable={false}
       maskClosable={false}
-      footer={[
-        <Button key="reject" danger disabled={offline} onClick={() => onApprove(false, 'once')}>
-          拒绝
-        </Button>,
-        <Button
-          key="session"
-          disabled={offline}
-          onClick={() => onApprove(true, 'session')}
-          title="本次会话内该工具不再询问（破坏性命令黑名单除外）"
-        >
-          本会话允许
-        </Button>,
-        <Button key="once" type="primary" disabled={offline} onClick={() => onApprove(true, 'once')}>
-          允许一次
-        </Button>,
-      ]}
+      footer={footer}
     >
       <Typography.Paragraph>
         Agent 想执行危险操作
@@ -75,9 +84,15 @@ export default function AgentApprovalModal({
       ) : (
         <pre className={styles.argsPre}>{argsText}</pre>
       )}
-      <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
-        不想再被询问？可在设置或工具栏切换为完全访问模式
-      </Typography.Text>
+      {forbidden ? (
+        <Typography.Text type="warning" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
+          该操作命中安全底线，每次都需确认
+        </Typography.Text>
+      ) : (
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
+          不想再被询问？可在设置或工具栏切换为完全访问模式
+        </Typography.Text>
+      )}
     </Modal>
   )
 }
