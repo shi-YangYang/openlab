@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { App as AntApp, Button, Card, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
+import { App as AntApp, Button, Card, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
 import { BulbOutlined, DeleteOutlined, DownloadOutlined, FilePdfOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, TranslationOutlined, UploadOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
-import { apiUrl, getLlmConfig, getTranslation, getTranslationProgress, startTranslation } from '../api'
+import { apiUrl, getLlmConfig, getTranslation, getTranslationProgress, searchLibrary, startTranslation } from '../api'
+import type { LibrarySearchHit } from '../types'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
 interface Props {
@@ -42,6 +43,9 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
   } = workspace
 
   const [keyword, setKeyword] = useState('')
+  const [libraryQuery, setLibraryQuery] = useState('')
+  const [librarySearching, setLibrarySearching] = useState(false)
+  const [libraryResults, setLibraryResults] = useState<LibrarySearchHit[] | null>(null)
   const [translateState, setTranslateState] = useState<Record<string, TranslateState>>({})
   const [translatingCount, setTranslatingCount] = useState(0)
   const [translateError, setTranslateError] = useState<Record<string, string>>({})
@@ -164,6 +168,32 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
     })
   }, [papers, keyword])
 
+  const handleLibrarySearch = useCallback(
+    async (value: string) => {
+      const q = value.trim()
+      if (!q) return
+      setLibrarySearching(true)
+      try {
+        const hits = await searchLibrary(q)
+        setLibraryResults(hits)
+        if (!hits.length) message.info('库内没有匹配的论文，可尝试其他关键词')
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : '库内检索失败')
+      } finally {
+        setLibrarySearching(false)
+      }
+    },
+    [message],
+  )
+
+  const handleClearLibrarySearch = useCallback(() => {
+    setLibraryResults(null)
+    setLibraryQuery('')
+  }, [])
+
+  // Library full-text results replace the plain filter view when active.
+  const displayPapers = libraryResults ?? filteredPapers
+
   const showStatus = Object.keys(statusMap).length > 0
   const showTranslate = translatingCount > 0 || papers.length > 0
 
@@ -225,23 +255,45 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
         </Space>
       }
     >
-      <PaperTable
-        papers={filteredPapers}
-        loading={loading}
-        selectedIds={selectedIds}
-        onSelect={setSelectedIds}
-        statusMap={statusMap}
-        errorMap={errorMap}
-        downloadProgressMap={downloadProgressMap}
-        showStatus={showStatus}
-        analysisStatusMap={analysisStatusMap}
-        showAnalysisStatus={Object.keys(analysisStatusMap).length > 0}
-        onAnalyze={handleAnalyzeOne}
-        translateState={showTranslate ? translateState : undefined}
-        translateError={translateError}
-        onTranslate={allowDelete ? (id) => void handleTranslate(id) : undefined}
-        onViewTranslation={allowDelete ? (id) => void handleViewTranslation(id) : undefined}
-      />
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Input.Search
+          allowClear
+          placeholder="库内全文检索：标题/摘要/分析/关键词"
+          value={libraryQuery}
+          onChange={(e) => setLibraryQuery(e.target.value)}
+          onSearch={(v) => void handleLibrarySearch(v)}
+          onClear={handleClearLibrarySearch}
+          enterButton
+          loading={librarySearching}
+          style={{ width: 320 }}
+        />
+        {libraryResults !== null && (
+          <Button onClick={handleClearLibrarySearch}>
+            清除检索（{libraryResults.length} 条结果）
+          </Button>
+        )}
+      </Space>
+      {libraryResults !== null && libraryResults.length === 0 ? (
+        <Empty description="无检索结果，试试其他关键词或清除检索" />
+      ) : (
+        <PaperTable
+          papers={displayPapers}
+          loading={loading || librarySearching}
+          selectedIds={selectedIds}
+          onSelect={setSelectedIds}
+          statusMap={statusMap}
+          errorMap={errorMap}
+          downloadProgressMap={downloadProgressMap}
+          showStatus={showStatus}
+          analysisStatusMap={analysisStatusMap}
+          showAnalysisStatus={Object.keys(analysisStatusMap).length > 0}
+          onAnalyze={handleAnalyzeOne}
+          translateState={showTranslate ? translateState : undefined}
+          translateError={translateError}
+          onTranslate={allowDelete ? (id) => void handleTranslate(id) : undefined}
+          onViewTranslation={allowDelete ? (id) => void handleViewTranslation(id) : undefined}
+        />
+      )}
 
       <Modal
         title={

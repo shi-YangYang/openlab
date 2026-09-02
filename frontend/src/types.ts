@@ -1,11 +1,11 @@
 export interface Paper {
   arxiv_id: string
-  title: string
+  title: string | null
   authors: string[]
-  abstract: string
+  abstract: string | null
   categories: string[]
-  published: string
-  pdf_url: string
+  published: string | null
+  pdf_url: string | null
   source?: string
   url?: string
 }
@@ -18,6 +18,10 @@ export interface PaperRecord extends Paper {
   error?: string | null
   created_at?: string
   duplicate_of?: string | null
+}
+
+export interface LibrarySearchHit extends PaperRecord {
+  matched_in?: string[]
 }
 
 export type SearchPlatform = 'arxiv' | 'semantic_scholar' | 'baidu_xueshu' | 'cnki'

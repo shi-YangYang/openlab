@@ -191,9 +191,9 @@ def _summarize(papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
         {
             "arxiv_id": p.get("arxiv_id", ""),
-            "title": p.get("title", ""),
-            "abstract": p.get("abstract", ""),
-            "published": p.get("published", ""),
+            "title": p.get("title") or "",
+            "abstract": p.get("abstract") or "",
+            "published": p.get("published") or "",
         }
         for p in papers
     ]
@@ -264,6 +264,38 @@ async def list_downloaded_papers() -> Dict[str, Any]:
             for p in downloaded
         ],
     }
+
+
+class SearchLibraryArgs(BaseModel):
+    q: str = Field(..., description="检索关键词，支持中英文子串，多词用空格分隔")
+    limit: int = Field(10, ge=1, le=50, description="返回的最大条数")
+
+
+async def search_library(q: str, limit: int = 10) -> Dict[str, Any]:
+    """Full-text search inside the local library (not an external search)."""
+    if not q.strip():
+        return {"query": q, "count": 0, "papers": [], "error": "检索词不能为空"}
+    if not database.fts_available():
+        return {
+            "query": q,
+            "count": 0,
+            "papers": [],
+            "error": "库内全文检索不可用：当前 SQLite 不支持 FTS5/trigram",
+        }
+    hits = database.search_paper_fts(q.strip(), limit)
+    papers = []
+    for hit in hits:
+        has_analysis = database.get_analysis(hit["arxiv_id"]) is not None
+        papers.append(
+            {
+                "arxiv_id": hit.get("arxiv_id", ""),
+                "title": hit.get("title", ""),
+                "source": hit.get("source", "arxiv"),
+                "abstract": (hit.get("abstract") or "")[:200],
+                "has_analysis": has_analysis,
+            }
+        )
+    return {"query": q, "count": len(papers), "papers": papers}
 
 
 async def analyze_paper(arxiv_id: str, language: str = "zh") -> Dict[str, Any]:
@@ -632,6 +664,12 @@ TOOLS: List[StructuredTool] = [
         "list_downloaded_papers",
         "列出本地已下载的论文。",
         NoArgs,
+    ),
+    _tool(
+        search_library,
+        "search_library",
+        "在本地论文库内全文检索（非外部搜索），按标题/摘要/分析内容/关键词/标签查找库内论文。",
+        SearchLibraryArgs,
     ),
     _tool(
         analyze_paper,

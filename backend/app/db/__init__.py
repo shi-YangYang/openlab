@@ -236,6 +236,16 @@ from .papers import (  # noqa: E402,F401
     set_status,
     upsert_paper,
 )
+from .papers_fts import (  # noqa: E402,F401
+    build_match_query,
+    fts_available,
+    rebuild_paper_fts,
+    rebuild_paper_fts_if_empty,
+    remove_paper_fts,
+    reset_probe,
+    search_paper_fts,
+    update_paper_fts,
+)
 from .reviews import (  # noqa: E402,F401
     get_review,
     insert_review,

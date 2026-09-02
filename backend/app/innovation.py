@@ -100,11 +100,11 @@ async def generate_innovations(
         analysis = database.get_analysis(arxiv_id)
         entry: Dict[str, Any] = {"arxiv_id": arxiv_id}
         if paper:
-            entry["title"] = paper.get("title", "")
+            entry["title"] = paper.get("title") or ""
         if analysis and analysis.get("content"):
             entry["analysis"] = analysis["content"]
         elif paper:
-            entry["abstract"] = paper.get("abstract", "")
+            entry["abstract"] = paper.get("abstract") or ""
         if "analysis" in entry or "abstract" in entry or paper:
             inputs.append(entry)
 

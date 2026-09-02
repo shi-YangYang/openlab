@@ -1,4 +1,5 @@
 """FastAPI application instance: lifespan, CORS, and router registration."""
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -45,6 +46,18 @@ async def lifespan(app: FastAPI):
         interval=settings.arxiv_request_interval,
         max_retries=settings.arxiv_max_retries,
     )
+    # Startup backfill (spec-037 NFR-3): build the FTS index off the event
+    # loop when the library has papers but the index is empty. Idempotent,
+    # never blocks startup, failures only log.
+    async def _backfill_fts() -> None:
+        try:
+            count = await asyncio.to_thread(database.rebuild_paper_fts_if_empty)
+            if count:
+                logger.info("FTS 索引已自动重建: %d 篇", count)
+        except Exception:
+            logger.warning("FTS 索引启动重建失败", exc_info=True)
+
+    asyncio.create_task(_backfill_fts())
     logger.info("openlab backend 启动")
     yield
     await app.state.arxiv_client.aclose()

@@ -45,6 +45,32 @@ async def list_papers(arxiv_ids: Optional[str] = Query(default=None)) -> List[di
     return database.list_papers(ids)
 
 
+@router.get("/search")
+async def search_library(
+    q: str = Query(default=""), limit: int = Query(default=50, ge=1, le=200)
+) -> List[dict]:
+    """Full-text search inside the local library (spec-037 FR-3)."""
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="检索词 q 不能为空")
+    if not database.fts_available():
+        raise HTTPException(
+            status_code=503,
+            detail="库内全文检索不可用：当前 SQLite 不支持 FTS5/trigram",
+        )
+    return database.search_paper_fts(q.strip(), limit)
+
+
+@router.post("/search/rebuild")
+async def rebuild_library_index() -> dict:
+    """Rebuild the whole FTS index; returns the number of indexed papers."""
+    if not database.fts_available():
+        raise HTTPException(
+            status_code=503,
+            detail="库内全文检索不可用：当前 SQLite 不支持 FTS5/trigram",
+        )
+    return {"rebuilt": database.rebuild_paper_fts()}
+
+
 @router.get("/{arxiv_id:path}/pdf")
 async def get_paper_pdf(arxiv_id: str) -> FileResponse:
     paper = database.get_paper(arxiv_id)

@@ -13,6 +13,7 @@ import type {
   ExperimentRun,
   InnovationHistoryItem,
   InnovationRecord,
+  LibrarySearchHit,
   LlmGroupsConfig,
   LlmModelInfo,
   LlmPreset,
@@ -182,6 +183,15 @@ async function del(path: string): Promise<void> {
 
 export async function searchPapers(params: SearchParams): Promise<SearchResult> {
   return post<SearchResult>('/search', params)
+}
+
+// Library full-text search (spec-037), searches local papers only.
+export async function searchLibrary(q: string, limit = 50): Promise<LibrarySearchHit[]> {
+  return get<LibrarySearchHit[]>(`/papers/search?q=${encodeURIComponent(q)}&limit=${limit}`)
+}
+
+export async function rebuildLibraryIndex(): Promise<{ rebuilt: number }> {
+  return post<{ rebuilt: number }>('/papers/search/rebuild', {})
 }
 
 export async function searchTopic(params: TopicSearchParams): Promise<TopicSearchResult> {

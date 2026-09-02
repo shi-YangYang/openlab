@@ -5,15 +5,18 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class Paper(BaseModel):
+    # Nullable columns in the papers table (title/abstract/published/pdf_url/
+    # url) may come back as None from any source that writes incomplete
+    # metadata, so these stay Optional instead of required strings.
     arxiv_id: str
-    title: str = ""
+    title: Optional[str] = None
     authors: List[str] = Field(default_factory=list)
-    abstract: str = ""
+    abstract: Optional[str] = None
     categories: List[str] = Field(default_factory=list)
-    published: str = ""
-    pdf_url: str = ""
+    published: Optional[str] = None
+    pdf_url: Optional[str] = None
     source: str = "arxiv"
-    url: str = ""
+    url: Optional[str] = None
 
 
 class PaperRecord(Paper):

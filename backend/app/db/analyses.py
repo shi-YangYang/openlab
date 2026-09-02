@@ -1,9 +1,12 @@
 """CRUD helpers for the analyses table."""
 import json
+import logging
 import sqlite3
 from typing import Any, Dict, List, Optional
 
 from . import _connect
+
+logger = logging.getLogger(__name__)
 
 
 def _analysis_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -83,6 +86,12 @@ def upsert_analysis(
         conn.commit()
     finally:
         conn.close()
+    try:
+        from .papers_fts import update_paper_fts
+
+        update_paper_fts(arxiv_id)
+    except Exception:
+        logger.warning("分析保存后 FTS 同步失败: %s", arxiv_id, exc_info=True)
 
 
 def get_analysis(arxiv_id: str) -> Optional[Dict[str, Any]]:

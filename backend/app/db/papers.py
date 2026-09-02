@@ -1,8 +1,20 @@
 """CRUD helpers for the papers table."""
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 from . import _connect, _row_to_dict
+from .papers_fts import remove_paper_fts, update_paper_fts
+
+logger = logging.getLogger(__name__)
+
+
+def _sync_paper_fts(arxiv_id: str) -> None:
+    """Keep the FTS row in step with paper writes; never break the write."""
+    try:
+        update_paper_fts(arxiv_id)
+    except Exception:
+        logger.warning("FTS 同步失败: %s", arxiv_id, exc_info=True)
 
 
 def upsert_paper(paper: Dict[str, Any]) -> None:
@@ -43,6 +55,7 @@ def upsert_paper(paper: Dict[str, Any]) -> None:
         conn.commit()
     finally:
         conn.close()
+    _sync_paper_fts(paper["arxiv_id"])
 
 
 def get_paper(arxiv_id: str) -> Optional[Dict[str, Any]]:
@@ -134,6 +147,12 @@ def delete_paper(arxiv_id: str) -> bool:
         conn.execute("DELETE FROM analyses WHERE arxiv_id = ?", (arxiv_id,))
         cur = conn.execute("DELETE FROM papers WHERE arxiv_id = ?", (arxiv_id,))
         conn.commit()
-        return cur.rowcount > 0
+        removed = cur.rowcount > 0
     finally:
         conn.close()
+    if removed:
+        try:
+            remove_paper_fts(arxiv_id)
+        except Exception:
+            logger.warning("FTS 清理失败: %s", arxiv_id, exc_info=True)
+    return removed
