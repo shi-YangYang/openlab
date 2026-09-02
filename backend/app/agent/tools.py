@@ -53,7 +53,7 @@ def _current_session() -> Optional[str]:
 
 class SearchPapersArgs(BaseModel):
     query: str = Field(..., description="arXiv 检索关键词或检索式（英文）")
-    max_results: int = Field(10, ge=1, le=100, description="返回结果数量")
+    max_results: int = Field(10, ge=1, le=100, description="每个平台各返回的最大条数")
     platforms: Optional[List[str]] = Field(
         None,
         description=f"搜索平台列表，可选值：{', '.join(ALL_PLATFORMS)}；不传则搜索全部",
@@ -62,7 +62,7 @@ class SearchPapersArgs(BaseModel):
 
 class SearchByTopicArgs(BaseModel):
     topic: str = Field(..., description="研究主题描述（可用中文或英文）")
-    max_results: int = Field(10, ge=1, le=100, description="返回结果数量")
+    max_results: int = Field(10, ge=1, le=100, description="每个平台各返回的最大条数")
     platforms: Optional[List[str]] = Field(
         None,
         description=f"搜索平台列表，可选值：{', '.join(ALL_PLATFORMS)}；不传则搜索全部",

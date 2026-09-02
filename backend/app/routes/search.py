@@ -1,5 +1,5 @@
 """Search routes: keyword/topic aggregation and search history."""
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -36,6 +36,19 @@ def _filter_by_date(
     return result
 
 
+def _per_platform_limit(papers: List[dict], max_results: int) -> List[dict]:
+    """Keep at most ``max_results`` papers per platform, preserving order."""
+    counts: Dict[str, int] = {}
+    result = []
+    for paper in papers:
+        source = paper.get("source") or ""
+        if counts.get(source, 0) >= max_results:
+            continue
+        counts[source] = counts.get(source, 0) + 1
+        result.append(paper)
+    return result
+
+
 @router.get("/history", response_model=List[SearchHistoryItem])
 async def list_search_history() -> List[dict]:
     return database.list_search_history()
@@ -61,9 +74,10 @@ async def search(
         arxiv_client=arxiv_client,
         category=req.category,
     )
-    papers = _filter_by_date(result["papers"], req.date_from, req.date_to)[
-        : req.max_results
-    ]
+    papers = _per_platform_limit(
+        _filter_by_date(result["papers"], req.date_from, req.date_to),
+        req.max_results,
+    )
     database.save_search_history(req.query, "keyword", papers)
     return {"papers": papers, "fallbacks": result["fallbacks"]}
 
@@ -87,9 +101,10 @@ async def search_topic(
         arxiv_client=arxiv_client,
         category=req.category,
     )
-    papers = _filter_by_date(result["papers"], req.date_from, req.date_to)[
-        : req.max_results
-    ]
+    papers = _per_platform_limit(
+        _filter_by_date(result["papers"], req.date_from, req.date_to),
+        req.max_results,
+    )
     database.save_search_history(req.topic, "topic", papers)
     return {"query": query, "papers": papers, "fallbacks": result["fallbacks"]}
 
