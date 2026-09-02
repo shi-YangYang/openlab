@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS experiment_runs (
     launch_command TEXT,
     steps_json TEXT,
     error TEXT,
+    metrics TEXT,
     created_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
     updated_at TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
 );
@@ -157,6 +158,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("papers", "source", "TEXT DEFAULT 'arxiv'"),
         ("papers", "url", "TEXT"),
         ("papers", "error", "TEXT"),
+        ("experiment_runs", "metrics", "TEXT"),
     ):
         names = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in names:
@@ -214,6 +216,7 @@ from .experiments import (  # noqa: E402,F401
     list_experiments,
     reset_stale_experiment_runs,
     set_experiment_progress,
+    set_experiment_run_metrics,
     update_experiment,
     update_experiment_run,
 )

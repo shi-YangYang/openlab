@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { App as AntApp, Button, Card, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
-import { BulbOutlined, DeleteOutlined, DownloadOutlined, FilePdfOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, TranslationOutlined, UploadOutlined } from '@ant-design/icons'
+import { App as AntApp, Button, Card, Dropdown, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
+import type { MenuProps } from 'antd'
+import { BulbOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FilePdfOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, TranslationOutlined, UploadOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
-import { apiUrl, getLlmConfig, getTranslation, getTranslationProgress, searchLibrary, startTranslation } from '../api'
+import { apiUrl, exportCitations, getLlmConfig, getTranslation, getTranslationProgress, searchLibrary, startTranslation } from '../api'
 import type { LibrarySearchHit } from '../types'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
@@ -43,6 +44,7 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
   } = workspace
 
   const [keyword, setKeyword] = useState('')
+  const [exportingCitations, setExportingCitations] = useState(false)
   const [libraryQuery, setLibraryQuery] = useState('')
   const [librarySearching, setLibrarySearching] = useState(false)
   const [libraryResults, setLibraryResults] = useState<LibrarySearchHit[] | null>(null)
@@ -191,6 +193,27 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
     setLibraryQuery('')
   }, [])
 
+  const citationMenuItems: MenuProps['items'] = [
+    { key: 'bibtex', label: 'BibTeX（papers.bib）' },
+    { key: 'gbt7714', label: 'GB/T 7714（references.txt）' },
+  ]
+
+  const handleExportCitations = async (format: 'bibtex' | 'gbt7714') => {
+    if (!selectedIds.length) {
+      message.warning('请先选择至少一篇论文')
+      return
+    }
+    setExportingCitations(true)
+    try {
+      await exportCitations(selectedIds, format)
+      message.success('引用已导出')
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '导出引用失败')
+    } finally {
+      setExportingCitations(false)
+    }
+  }
+
   // Library full-text results replace the plain filter view when active.
   const displayPapers = libraryResults ?? filteredPapers
 
@@ -236,6 +259,22 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
           <Button icon={<BulbOutlined />} disabled={!papers.length} onClick={handleOpenInnovation}>
             生成创新点
           </Button>
+          <Dropdown
+            menu={{
+              items: citationMenuItems,
+              onClick: ({ key }) => void handleExportCitations(key as 'bibtex' | 'gbt7714'),
+            }}
+            disabled={selectedIds.length < 1}
+          >
+            <Button
+              icon={<ExportOutlined />}
+              loading={exportingCitations}
+              disabled={selectedIds.length < 1}
+              title={selectedIds.length ? '' : '请先在列表中勾选论文'}
+            >
+              导出引用
+            </Button>
+          </Dropdown>
           {onUploadPdf && (
             <Button icon={<UploadOutlined />} onClick={onUploadPdf}>
               上传 PDF

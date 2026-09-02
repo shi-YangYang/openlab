@@ -11,6 +11,7 @@ import type {
   ExperimentHistoryItem,
   ExperimentRecord,
   ExperimentRun,
+  ExperimentRunCompareResponse,
   InnovationHistoryItem,
   InnovationRecord,
   LibrarySearchHit,
@@ -86,6 +87,23 @@ export async function startExperimentRun(
   steps: Record<string, string>,
 ): Promise<void> {
   await post(`/experiment-runs/${id}/start`, { steps })
+}
+
+export async function compareExperimentRuns(
+  ids: number[],
+): Promise<ExperimentRunCompareResponse> {
+  return post<ExperimentRunCompareResponse>('/experiment-runs/compare', { ids })
+}
+
+export async function extractRunMetrics(id: number): Promise<ExperimentRun> {
+  return post<ExperimentRun>(`/experiment-runs/${id}/metrics/extract`, {})
+}
+
+export async function updateRunMetrics(
+  id: number,
+  metrics: Record<string, number>,
+): Promise<ExperimentRun> {
+  return put<ExperimentRun>(`/experiment-runs/${id}/metrics`, { metrics })
 }
 
 // --------------------------- Paper translation -------------------------------
@@ -230,6 +248,32 @@ export async function listPapers(arxivIds?: string[]): Promise<PaperRecord[]> {
 
 export async function deletePaper(arxivId: string): Promise<void> {
   return del(`/papers/${encodeURIComponent(arxivId)}`)
+}
+
+export async function exportCitations(
+  arxivIds: string[],
+  format: 'bibtex' | 'gbt7714',
+): Promise<void> {
+  const res = await fetch(`${BASE}/papers/export/citations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ arxiv_ids: arxivIds, format }),
+  })
+  if (!res.ok) {
+    await throwForStatus(res)
+  }
+  const blob = await res.blob()
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const match = disposition.match(/filename="?([^";]+)"?/)
+  const filename = match?.[1] ?? (format === 'bibtex' ? 'papers.bib' : 'references.txt')
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 export async function listSearchHistory(): Promise<SearchHistoryItem[]> {

@@ -16,6 +16,7 @@ import paramiko
 
 from . import database
 from .config import settings
+from .metrics_extractor import extract_metrics
 from .redact import redact_secrets
 from .ssh import connect
 
@@ -147,6 +148,24 @@ def _threadsafe(loop: asyncio.AbstractEventLoop, coro) -> None:
 
 def _log_path(run_id: int) -> Path:
     return Path(settings.data_dir / "experiment_runs" / f"{run_id}.log")
+
+
+def run_log_path(run_id: int) -> Path:
+    """Canonical local log file location for a run (public helper)."""
+    return _log_path(run_id)
+
+
+def extract_and_store_metrics(run_id: int) -> Dict[str, float]:
+    """Parse the run's local log and persist extracted metrics (spec-038 FR-2).
+
+    Uses the recorded ``log_path`` when present, falling back to the canonical
+    ``data/experiment_runs/{run_id}.log`` location.
+    """
+    record = database.get_experiment_run(run_id) or {}
+    log_path = record.get("log_path") or str(_log_path(run_id))
+    metrics = extract_metrics(log_path)
+    database.set_experiment_run_metrics(run_id, metrics)
+    return metrics
 
 
 _log_locks: Dict[int, asyncio.Lock] = {}
@@ -461,6 +480,12 @@ class ExperimentRunDriver:
                     }
                 )
                 await self._emit_status("succeeded")
+                try:
+                    extract_and_store_metrics(self.run_id)
+                except Exception:  # noqa: BLE001 - metrics must not break the run
+                    logger.warning(
+                        "metrics 自动提取失败: run=%s", self.run_id, exc_info=True
+                    )
                 return True
             await asyncio.sleep(MONITOR_POLL_SECONDS)
 

@@ -140,6 +140,25 @@ _RUN_UPDATABLE_FIELDS = (
 )
 
 
+def _parse_run_metrics(raw: Any) -> Optional[Dict[str, float]]:
+    """Decode the metrics JSON column; absent/invalid → None (not extracted)."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    metrics: Dict[str, float] = {}
+    for key, value in parsed.items():
+        try:
+            metrics[str(key)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return metrics
+
+
 def _run_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     data = dict(row)
     data["mode"] = data.get("mode") or "manual"
@@ -149,6 +168,7 @@ def _run_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     data["launch_command"] = data.get("launch_command") or ""
     data["steps_json"] = data.get("steps_json") or ""
     data["error"] = data.get("error") or ""
+    data["metrics"] = _parse_run_metrics(data.get("metrics"))
     return data
 
 
@@ -230,6 +250,26 @@ def update_experiment_run(run_id: int, **fields: Any) -> Optional[Dict[str, Any]
             "SELECT * FROM experiment_runs WHERE id = ?", (run_id,)
         ).fetchone()
         return _run_row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def set_experiment_run_metrics(
+    run_id: int, metrics: Optional[Dict[str, float]]
+) -> None:
+    """Persist a run's metrics payload as JSON (spec-038 FR-2).
+
+    ``None`` stores SQL NULL (never extracted); ``{}`` stores an empty object
+    (extracted but nothing matched). Deliberately does not touch ``updated_at``
+    so metric extraction/edits do not distort run duration.
+    """
+    payload = json.dumps(metrics) if metrics is not None else None
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE experiment_runs SET metrics = ? WHERE id = ?", (payload, run_id)
+        )
+        conn.commit()
     finally:
         conn.close()
 

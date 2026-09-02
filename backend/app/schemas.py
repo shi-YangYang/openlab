@@ -481,6 +481,56 @@ class ExperimentRunCreate(BaseModel):
     repo_url: str = ""
 
 
+class ExperimentRun(BaseModel):
+    id: int
+    experiment_id: int
+    server_id: str
+    mode: str = "manual"
+    status: str = "pending"
+    current_step: str = ""
+    log_path: Optional[str] = None
+    remote_workdir: str = ""
+    pid: Optional[int] = None
+    launch_command: str = ""
+    steps_json: str = ""
+    error: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    metrics: Optional[Dict[str, float]] = None
+
+
+class ExperimentRunMetricsUpdate(BaseModel):
+    # Values arrive loosely typed; the route coerces to float and answers 400
+    # for anything non-numeric instead of letting pydantic return 422.
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ExperimentRunCompareRequest(BaseModel):
+    ids: List[int] = Field(default_factory=list)
+
+
+class ExperimentRunCompareItem(BaseModel):
+    id: int
+    experiment_title: str = ""
+    mode: str = "manual"
+    status: str = "pending"
+    server_id: str = ""
+    duration_seconds: Optional[float] = None
+    created_at: Optional[str] = None
+    metrics: Optional[Dict[str, float]] = None
+    error: str = ""
+
+
+class ExperimentRunCompareResponse(BaseModel):
+    runs: List[ExperimentRunCompareItem] = Field(default_factory=list)
+    metric_keys: List[str] = Field(default_factory=list)
+
+
+class CitationExportRequest(BaseModel):
+    arxiv_ids: List[str] = Field(default_factory=list)
+    format: str = "bibtex"
+
+
 class ExperimentRunStartRequest(BaseModel):
     steps: Dict[str, str]
 

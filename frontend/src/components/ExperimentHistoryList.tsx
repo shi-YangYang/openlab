@@ -20,17 +20,28 @@ import {
   DownloadOutlined,
   EyeOutlined,
   PlayCircleOutlined,
+  ReloadOutlined,
   SearchOutlined,
+  SwapOutlined,
 } from '@ant-design/icons'
 import {
+  compareExperimentRuns,
   deleteExperiment,
   exportExperimentMarkdown,
+  extractRunMetrics,
   getExperiment,
   getExperimentRun,
   listExperimentRuns,
   listExperiments,
+  updateRunMetrics,
 } from '../api'
-import type { ExperimentHistoryItem, ExperimentRecord, ExperimentRun } from '../types'
+import type {
+  ExperimentHistoryItem,
+  ExperimentRecord,
+  ExperimentRun,
+  ExperimentRunCompareItem,
+  ExperimentRunCompareResponse,
+} from '../types'
 import ExperimentRunPanel from './experiment-run/ExperimentRunPanel'
 
 const STATUS_META: Record<string, { color: string; label: string }> = {
@@ -62,6 +73,28 @@ function downloadText(text: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+function formatMetricValue(v: number): string {
+  if (!Number.isFinite(v)) return '-'
+  return String(Math.round(v * 10000) / 10000)
+}
+
+function formatDuration(seconds: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '-'
+  const s = Math.max(0, Math.round(seconds))
+  if (s < 60) return `${s} 秒`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} 分 ${s % 60} 秒`
+  return `${Math.floor(m / 60)} 时 ${m % 60} 分`
+}
+
+interface CompareRow {
+  key: string
+  label: string
+  isMetric: boolean
+  metricKey?: string
+  values: Record<number, string | number | null>
+}
+
 export default function ExperimentHistoryList() {
   const { message } = AntApp.useApp()
   const [items, setItems] = useState<ExperimentHistoryItem[]>([])
@@ -77,6 +110,13 @@ export default function ExperimentHistoryList() {
   const [runPanelOpen, setRunPanelOpen] = useState(false)
   const [panelExperiment, setPanelExperiment] = useState<ExperimentRecord | null>(null)
   const panelRecord = panelExperiment as ExperimentRecord | null
+  const [selectedRunIds, setSelectedRunIds] = useState<number[]>([])
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [compareLoading, setCompareLoading] = useState(false)
+  const [compareData, setCompareData] = useState<ExperimentRunCompareResponse | null>(null)
+  const [editingCell, setEditingCell] = useState<{ runId: number; key: string } | null>(null)
+  const [editingValue, setEditingValue] = useState('')
+  const [reextracting, setReextracting] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -162,6 +202,75 @@ export default function ExperimentHistoryList() {
     }
   }
 
+  const handleCompare = async () => {
+    setCompareOpen(true)
+    setEditingCell(null)
+    setCompareLoading(true)
+    try {
+      setCompareData(await compareExperimentRuns(selectedRunIds))
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载对比数据失败')
+      setCompareOpen(false)
+    } finally {
+      setCompareLoading(false)
+    }
+  }
+
+  const commitMetricEdit = async (run: ExperimentRunCompareItem, metricKey: string) => {
+    const raw = editingValue.trim()
+    const prev = run.metrics ?? {}
+    let next: Record<string, number>
+    if (raw === '') {
+      if (!(metricKey in prev)) {
+        setEditingCell(null)
+        return
+      }
+      next = { ...prev }
+      delete next[metricKey]
+    } else {
+      const num = Number(raw)
+      if (!Number.isFinite(num)) {
+        message.error(`「${raw}」不是有效数字`)
+        return
+      }
+      next = { ...prev, [metricKey]: num }
+    }
+    try {
+      const updated = await updateRunMetrics(run.id, next)
+      setEditingCell(null)
+      setCompareData((cd) => {
+        if (!cd) return cd
+        const runs = cd.runs.map((r) =>
+          r.id === run.id ? { ...r, metrics: updated.metrics ?? null } : r,
+        )
+        const keys = new Set<string>()
+        for (const r of runs) Object.keys(r.metrics ?? {}).forEach((k) => keys.add(k))
+        return { runs, metric_keys: Array.from(keys).sort() }
+      })
+      message.success('指标已保存')
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '保存指标失败')
+      setEditingCell(null)
+    }
+  }
+
+  const handleReextract = async (runId: number) => {
+    setReextracting(true)
+    try {
+      const run = await extractRunMetrics(runId)
+      setRunDetail((prev) =>
+        prev && prev.id === run.id ? { ...prev, metrics: run.metrics ?? null } : prev,
+      )
+      const count = Object.keys(run.metrics ?? {}).length
+      message.success(count ? `已重新解析，提取到 ${count} 个指标` : '重新解析完成，未提取到指标')
+      void loadRuns()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '重新解析失败')
+    } finally {
+      setReextracting(false)
+    }
+  }
+
   const runsColumns: TableProps<ExperimentRun>['columns'] = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     { title: '方案', dataIndex: 'experiment_id', key: 'experiment_id', width: 70 },
@@ -216,6 +325,84 @@ export default function ExperimentHistoryList() {
         (r.current_step || '').toLowerCase().includes(kw),
     )
   }, [runs, keyword])
+
+  const compareRows: CompareRow[] = useMemo(() => {
+    if (!compareData) return []
+    const rows: CompareRow[] = []
+    const infoRows: [string, (r: ExperimentRunCompareItem) => string][] = [
+      ['状态', (r) => RUN_STATUS_META[r.status]?.label ?? r.status],
+      ['耗时', (r) => formatDuration(r.duration_seconds)],
+      ['服务器', (r) => r.server_id || '-'],
+      ['创建时间', (r) => r.created_at || '-'],
+      ['错误', (r) => r.error || '-'],
+    ]
+    for (const [label, get] of infoRows) {
+      const values: Record<number, string> = {}
+      for (const r of compareData.runs) values[r.id] = get(r)
+      rows.push({ key: `info_${label}`, label, isMetric: false, values })
+    }
+    for (const mk of compareData.metric_keys) {
+      const values: Record<number, number | null> = {}
+      for (const r of compareData.runs) {
+        const v = r.metrics?.[mk]
+        values[r.id] = typeof v === 'number' ? v : null
+      }
+      rows.push({ key: `metric_${mk}`, label: mk, isMetric: true, metricKey: mk, values })
+    }
+    return rows
+  }, [compareData])
+
+  const renderCompareCell = (run: ExperimentRunCompareItem, row: CompareRow) => {
+    if (!row.isMetric || row.metricKey == null) {
+      const v = row.values[run.id]
+      return v == null || v === '' ? '-' : String(v)
+    }
+    if (editingCell && editingCell.runId === run.id && editingCell.key === row.metricKey) {
+      return (
+        <Input
+          size="small"
+          autoFocus
+          value={editingValue}
+          onChange={(e) => setEditingValue(e.target.value)}
+          onBlur={() => setEditingCell(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void commitMetricEdit(run, row.metricKey!)
+            else if (e.key === 'Escape') setEditingCell(null)
+          }}
+          style={{ width: 110 }}
+        />
+      )
+    }
+    const v = row.values[run.id]
+    return (
+      <span
+        style={{ cursor: 'text' }}
+        title="双击编辑"
+        onDoubleClick={() => {
+          setEditingCell({ runId: run.id, key: row.metricKey! })
+          setEditingValue(typeof v === 'number' ? String(v) : '')
+        }}
+      >
+        {typeof v === 'number' ? formatMetricValue(v) : '-'}
+      </span>
+    )
+  }
+
+  const compareColumns: TableProps<CompareRow>['columns'] = [
+    { title: '项目', dataIndex: 'label', key: 'label', fixed: 'left', width: 130 },
+    ...(compareData?.runs ?? []).map((run) => ({
+      title: (
+        <div>
+          <div style={{ fontWeight: 600 }}>{run.experiment_title || `实验对比 ${run.id}`}</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            #{run.id} · {RUN_STATUS_META[run.status]?.label ?? run.status}
+          </Typography.Text>
+        </div>
+      ),
+      key: `run_${run.id}`,
+      render: (_: unknown, row: CompareRow) => renderCompareCell(run, row),
+    })),
+  ]
 
   const columns: TableProps<ExperimentHistoryItem>['columns'] = [
     {
@@ -312,6 +499,15 @@ export default function ExperimentHistoryList() {
               { value: 'runs', label: '运行记录' },
             ]}
           />
+          {view === 'runs' && (
+            <Button
+              icon={<SwapOutlined />}
+              disabled={selectedRunIds.length < 2 || selectedRunIds.length > 10}
+              onClick={() => void handleCompare()}
+            >
+              对比{selectedRunIds.length ? `（${selectedRunIds.length}）` : ''}
+            </Button>
+          )}
         </Space>
       }
     >
@@ -386,9 +582,36 @@ export default function ExperimentHistoryList() {
             dataSource={filteredRuns}
             columns={runsColumns}
             loading={runsLoading}
+            rowSelection={{
+              selectedRowKeys: selectedRunIds,
+              onChange: (keys) => setSelectedRunIds(keys.map(Number)),
+            }}
             pagination={{ pageSize: 10, showSizeChanger: false }}
             size="middle"
           />
+          <Modal
+            title="实验结果对比"
+            open={compareOpen}
+            onCancel={() => {
+              setCompareOpen(false)
+              setEditingCell(null)
+            }}
+            footer={null}
+            width="80%"
+          >
+            <Table
+              rowKey="key"
+              dataSource={compareRows}
+              columns={compareColumns}
+              loading={compareLoading}
+              pagination={false}
+              size="small"
+              scroll={{ x: 'max-content' }}
+            />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              双击指标单元格可编辑数值：回车保存，Esc 取消；清空回车删除该指标。
+            </Typography.Text>
+          </Modal>
           <Modal
             title={`运行详情 #${runDetail?.id ?? ''}`}
             open={runDetail != null}
@@ -403,6 +626,28 @@ export default function ExperimentHistoryList() {
                   {RUN_STATUS_META[runDetail.status]?.label ?? runDetail.status}
                   {runDetail.error ? ` — ${runDetail.error}` : ''}
                 </Typography.Paragraph>
+                <Divider orientation="left" plain style={{ margin: '8px 0' }}>
+                  指标
+                </Divider>
+                <div style={{ marginBottom: 12 }}>
+                  {runDetail.metrics && Object.keys(runDetail.metrics).length > 0 ? (
+                    <Space size={[4, 4]} wrap>
+                      {Object.entries(runDetail.metrics).map(([k, v]) => (
+                        <Tag key={k}>{`${k}=${formatMetricValue(v)}`}</Tag>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Typography.Text type="secondary">未提取</Typography.Text>
+                  )}
+                </div>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={reextracting}
+                  onClick={() => void handleReextract(runDetail.id)}
+                >
+                  重新解析
+                </Button>
                 <pre className="log-area" style={{ maxHeight: 420, overflow: 'auto' }}>
                   {runDetail.log_tail || '（无日志）'}
                 </pre>

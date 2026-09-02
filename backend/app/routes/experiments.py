@@ -1,16 +1,23 @@
 """Experiment routes: plan generation and remote run orchestration."""
 import json
-from typing import List
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket
 from fastapi.responses import Response
 
 from .. import database, export, experiment, servers
+from ..metrics_extractor import extract_metrics
 from ..schemas import (
     ExperimentHistoryItem,
     ExperimentRecord,
     ExperimentRequest,
+    ExperimentRun,
+    ExperimentRunCompareRequest,
+    ExperimentRunCompareResponse,
     ExperimentRunCreate,
+    ExperimentRunMetricsUpdate,
     ExperimentRunStartRequest,
 )
 
@@ -129,6 +136,38 @@ async def list_experiment_runs() -> List[dict]:
     return database.list_experiment_runs()
 
 
+@runs_router.post("/compare", response_model=ExperimentRunCompareResponse)
+async def compare_experiment_runs(req: ExperimentRunCompareRequest) -> dict:
+    """Compare 2-10 runs side by side (spec-038 FR-3)."""
+    if not 2 <= len(req.ids) <= 10:
+        raise HTTPException(status_code=400, detail="ids 必须包含 2-10 个 run id")
+    items = []
+    metric_keys = set()
+    for run_id in req.ids:
+        run = database.get_experiment_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        experiment_record = database.get_experiment(run.get("experiment_id"))
+        metrics = run.get("metrics") or {}
+        metric_keys.update(metrics)
+        items.append(
+            {
+                "id": run["id"],
+                "experiment_title": _experiment_title(experiment_record),
+                "mode": run.get("mode") or "manual",
+                "status": run.get("status") or "pending",
+                "server_id": run.get("server_id") or "",
+                "duration_seconds": _parse_duration_seconds(
+                    run.get("created_at"), run.get("updated_at")
+                ),
+                "created_at": run.get("created_at"),
+                "metrics": metrics,
+                "error": run.get("error") or "",
+            }
+        )
+    return {"runs": items, "metric_keys": sorted(metric_keys)}
+
+
 @runs_router.get("/{run_id}")
 async def get_experiment_run(run_id: int) -> dict:
     run = database.get_experiment_run(run_id)
@@ -189,6 +228,41 @@ async def delete_experiment_run_endpoint(run_id: int) -> dict:
     return {"status": "ok"}
 
 
+@runs_router.post("/{run_id}/metrics/extract", response_model=ExperimentRun)
+async def extract_run_metrics(run_id: int) -> dict:
+    """Re-extract metrics from the run's log file (spec-038 FR-3)."""
+    run = database.get_experiment_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    log_path = run.get("log_path")
+    if not log_path:
+        from ..experiment_runner import run_log_path
+
+        log_path = str(run_log_path(run_id))
+    if not Path(log_path).is_file():
+        raise HTTPException(status_code=400, detail=f"日志文件不存在: {log_path}")
+    metrics = extract_metrics(log_path)
+    database.set_experiment_run_metrics(run_id, metrics)
+    return database.get_experiment_run(run_id)
+
+
+@runs_router.put("/{run_id}/metrics", response_model=ExperimentRun)
+async def update_run_metrics(run_id: int, req: ExperimentRunMetricsUpdate) -> dict:
+    """Manually edit/overwrite a run's metrics (spec-038 FR-3)."""
+    if database.get_experiment_run(run_id) is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    cleaned: Dict[str, float] = {}
+    for key, value in req.metrics.items():
+        try:
+            cleaned[str(key)] = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400, detail=f"指标值无法转为数字: {key}={value}"
+            )
+    database.set_experiment_run_metrics(run_id, cleaned)
+    return database.get_experiment_run(run_id)
+
+
 @runs_router.websocket("/ws")
 async def experiment_run_ws(websocket: WebSocket, run_id: int) -> None:
     from .. import experiment_runner as runner_module
@@ -233,6 +307,38 @@ def _experiment_source_label(record: dict) -> str:
         return f"创新点 #{record.get('innovation_id')}"
     arxiv_ids = record.get("arxiv_ids", [])
     return "论文: " + (", ".join(arxiv_ids) if arxiv_ids else "-")
+
+
+def _experiment_title(record: Optional[dict]) -> str:
+    if not record:
+        return ""
+    if record.get("source_type") == "innovation":
+        return f"创新点 #{record.get('innovation_id')}"
+    paper_count = len(record.get("arxiv_ids") or [])
+    return f"论文: {paper_count} 篇"
+
+
+def _parse_timestamp(value: object) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_duration_seconds(
+    created_at: object, updated_at: object
+) -> Optional[float]:
+    created = _parse_timestamp(created_at)
+    updated = _parse_timestamp(updated_at)
+    if created is None or updated is None:
+        return None
+    seconds = (updated - created).total_seconds()
+    return round(seconds, 1) if seconds >= 0 else None
 
 
 def _experiment_history_item(record: dict) -> dict:

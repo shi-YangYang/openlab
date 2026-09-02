@@ -151,6 +151,24 @@ export interface ExperimentRun {
   updated_at?: string
   steps?: Record<string, string>
   log_tail?: string
+  metrics?: Record<string, number> | null
+}
+
+export interface ExperimentRunCompareItem {
+  id: number
+  experiment_title: string
+  mode: string
+  status: string
+  server_id: string
+  duration_seconds: number | null
+  created_at: string | null
+  metrics: Record<string, number> | null
+  error: string
+}
+
+export interface ExperimentRunCompareResponse {
+  runs: ExperimentRunCompareItem[]
+  metric_keys: string[]
 }
 
 export interface LlmTestResult {

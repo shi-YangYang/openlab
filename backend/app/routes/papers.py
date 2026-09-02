@@ -16,13 +16,15 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from .. import database, downloader, pdf, upload
 from ..arxiv import ArxivClient
+from ..citations import build_bibtex, build_gbt7714
 from ..config import settings
 from ..pdf import PdfExtractionError
 from ..schemas import (
+    CitationExportRequest,
     DownloadRequest,
     DownloadResponse,
     PaperRecord,
@@ -69,6 +71,32 @@ async def rebuild_library_index() -> dict:
             detail="库内全文检索不可用：当前 SQLite 不支持 FTS5/trigram",
         )
     return {"rebuilt": database.rebuild_paper_fts()}
+
+
+@router.post("/export/citations")
+async def export_citations(req: CitationExportRequest) -> Response:
+    """Export selected papers as BibTeX / GB/T 7714 (spec-038 FR-6)."""
+    ids = [str(arxiv_id).strip() for arxiv_id in req.arxiv_ids if str(arxiv_id).strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="arxiv_ids 不能为空")
+    fmt = str(req.format or "").strip().lower()
+    if fmt not in ("bibtex", "gbt7714"):
+        raise HTTPException(status_code=400, detail="format 必须为 bibtex 或 gbt7714")
+    papers = []
+    for arxiv_id in ids:
+        paper = database.get_paper(arxiv_id)
+        if paper is None:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {arxiv_id}")
+        papers.append(paper)
+    if fmt == "bibtex":
+        content, filename = build_bibtex(papers), "papers.bib"
+    else:
+        content, filename = build_gbt7714(papers), "references.txt"
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{arxiv_id:path}/pdf")
