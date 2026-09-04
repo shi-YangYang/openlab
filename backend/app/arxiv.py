@@ -59,10 +59,8 @@ class ArxivClient:
             "max_results": max_results,
         }
 
-    async def search(
-        self, query: str, max_results: int = 10, category: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
-        params = self._build_params(query, max_results, category)
+    async def _request(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Rate-limited GET with retry; returns parsed entries (spec-039)."""
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
@@ -93,6 +91,26 @@ class ArxivClient:
         if last_error is not None:
             raise last_error
         return []
+
+    async def search(
+        self, query: str, max_results: int = 10, category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        return await self._request(
+            self._build_params(query, max_results, category)
+        )
+
+    async def fetch_by_ids(self, ids: List[str]) -> List[Dict[str, Any]]:
+        """Fetch entries by arXiv id list (spec-039 FR-1 metadata backfill).
+
+        Reuses the same rate limiter and retry policy as ``search``. Unknown
+        ids are simply absent from the result.
+        """
+        clean = [str(i).strip() for i in ids if str(i).strip()]
+        if not clean:
+            return []
+        return await self._request(
+            {"id_list": ",".join(clean), "start": 0, "max_results": len(clean)}
+        )
 
     def _parse(self, text: str) -> List[Dict[str, Any]]:
         root = ET.fromstring(text)

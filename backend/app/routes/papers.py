@@ -22,6 +22,7 @@ from .. import database, downloader, pdf, upload
 from ..arxiv import ArxivClient
 from ..citations import build_bibtex, build_gbt7714
 from ..config import settings
+from ..metadata_backfill import backfill_metadata
 from ..pdf import PdfExtractionError
 from ..schemas import (
     CitationExportRequest,
@@ -71,6 +72,18 @@ async def rebuild_library_index() -> dict:
             detail="库内全文检索不可用：当前 SQLite 不支持 FTS5/trigram",
         )
     return {"rebuilt": database.rebuild_paper_fts()}
+
+
+@router.post("/metadata/backfill")
+async def backfill_paper_metadata(
+    limit: int = Query(default=20, ge=1, le=20),
+    arxiv: ArxivClient = Depends(get_arxiv_client),
+) -> dict:
+    """Backfill missing paper metadata from arXiv (spec-039 FR-2).
+
+    Synchronous: bounded by ``limit`` (<= 20) and the client's rate limit.
+    """
+    return await backfill_metadata(limit=limit, client=arxiv)
 
 
 @router.post("/export/citations")

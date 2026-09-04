@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { App as AntApp, Button, Card, Dropdown, Empty, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
 import type { MenuProps } from 'antd'
-import { BulbOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FilePdfOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, TranslationOutlined, UploadOutlined } from '@ant-design/icons'
+import { BulbOutlined, DeleteOutlined, DownloadOutlined, ExportOutlined, FileDoneOutlined, FilePdfOutlined, FileSearchOutlined, SearchOutlined, TeamOutlined, TranslationOutlined, UploadOutlined } from '@ant-design/icons'
 import PaperTable from './PaperTable'
-import { apiUrl, exportCitations, getLlmConfig, getTranslation, getTranslationProgress, searchLibrary, startTranslation } from '../api'
+import { apiUrl, backfillMetadata, exportCitations, getLlmConfig, getTranslation, getTranslationProgress, searchLibrary, startTranslation } from '../api'
 import type { LibrarySearchHit } from '../types'
 import type { PaperWorkspace } from '../hooks/usePaperWorkspace'
 
@@ -45,6 +45,7 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
 
   const [keyword, setKeyword] = useState('')
   const [exportingCitations, setExportingCitations] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
   const [libraryQuery, setLibraryQuery] = useState('')
   const [librarySearching, setLibrarySearching] = useState(false)
   const [libraryResults, setLibraryResults] = useState<LibrarySearchHit[] | null>(null)
@@ -217,6 +218,21 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
   // Library full-text results replace the plain filter view when active.
   const displayPapers = libraryResults ?? filteredPapers
 
+  const handleBackfillMetadata = async () => {
+    setBackfilling(true)
+    try {
+      const counts = await backfillMetadata()
+      await workspace.loadLibrary()
+      message.info(
+        counts.updated > 0 ? `已补全 ${counts.updated} 篇` : '没有需要补全的论文',
+      )
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '补全元数据失败')
+    } finally {
+      setBackfilling(false)
+    }
+  }
+
   const showStatus = Object.keys(statusMap).length > 0
   const showTranslate = translatingCount > 0 || papers.length > 0
 
@@ -275,6 +291,14 @@ export default function PaperWorkspace({ title, workspace, onUploadPdf, allowDel
               导出引用
             </Button>
           </Dropdown>
+          <Button
+            icon={<FileDoneOutlined />}
+            loading={backfilling}
+            disabled={!papers.length}
+            onClick={() => void handleBackfillMetadata()}
+          >
+            补全元数据
+          </Button>
           {onUploadPdf && (
             <Button icon={<UploadOutlined />} onClick={onUploadPdf}>
               上传 PDF

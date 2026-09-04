@@ -234,9 +234,11 @@ from .papers import (  # noqa: E402,F401
     delete_paper,
     get_paper,
     list_papers,
+    list_papers_missing_metadata,
     reset_stale_downloads,
     set_download_progress,
     set_status,
+    update_paper_metadata,
     upsert_paper,
 )
 from .papers_fts import (  # noqa: E402,F401

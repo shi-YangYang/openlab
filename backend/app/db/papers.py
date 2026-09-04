@@ -8,6 +8,8 @@ from .papers_fts import remove_paper_fts, update_paper_fts
 
 logger = logging.getLogger(__name__)
 
+PAPER_METADATA_FIELDS = ("title", "abstract", "authors", "categories", "published", "pdf_url")
+
 
 def _sync_paper_fts(arxiv_id: str) -> None:
     """Keep the FTS row in step with paper writes; never break the write."""
@@ -56,6 +58,82 @@ def upsert_paper(paper: Dict[str, Any]) -> None:
     finally:
         conn.close()
     _sync_paper_fts(paper["arxiv_id"])
+
+
+def list_papers_missing_metadata(limit: int = 20) -> List[Dict[str, Any]]:
+    """Papers with incomplete metadata (spec-039 FR-1), id ascending.
+
+    A paper qualifies when authors, published or categories are missing/empty.
+    Non-arxiv sources are included in the candidate pool so callers can count
+    them as ``skipped_non_arxiv``.
+    """
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM papers
+            WHERE authors IS NULL OR authors = '' OR authors = '[]'
+               OR published IS NULL OR published = ''
+               OR categories IS NULL OR categories = '' OR categories = '[]'
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_paper_metadata(arxiv_id: str, fields: Dict[str, Any]) -> bool:
+    """Partially update only metadata columns (spec-039 FR-1/NFR-2).
+
+    Download-local state (``local_pdf_path``/``status``/``progress``/``error``)
+    is never written here. Returns True when the row exists and at least one
+    field actually changed; the FTS index is refreshed on every real write.
+    """
+    updates: Dict[str, Any] = {}
+    for key in PAPER_METADATA_FIELDS:
+        if key not in fields:
+            continue
+        value = fields[key]
+        if key in ("authors", "categories"):
+            updates[key] = json.dumps(value or [])
+        else:
+            updates[key] = "" if value is None else str(value)
+    if not updates:
+        return False
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM papers WHERE arxiv_id = ?", (arxiv_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        current = _row_to_dict(row)
+        changed: Dict[str, Any] = {}
+        for key, value in updates.items():
+            old = current.get(key)
+            if key in ("authors", "categories"):
+                old = json.dumps(old or [])
+            elif old is None:
+                old = ""
+            else:
+                old = str(old)
+            if old != value:
+                changed[key] = value
+        if not changed:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in changed)
+        conn.execute(
+            f"UPDATE papers SET {set_clause} WHERE arxiv_id = ?",
+            (*changed.values(), arxiv_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _sync_paper_fts(arxiv_id)
+    return True
 
 
 def get_paper(arxiv_id: str) -> Optional[Dict[str, Any]]:

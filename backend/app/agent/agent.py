@@ -307,6 +307,40 @@ def _needs_approval(session: Session, name: str, args: Dict[str, Any]) -> bool:
     return verdict == agent_permissions.ASK
 
 
+def _normalize_tool_args(args: Dict[str, Any]) -> str:
+    return json.dumps(args or {}, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _find_previous_tool_result(
+    session: Session, name: str, norm_args: str
+) -> Optional[str]:
+    """Locate the result of an identical earlier tool call (spec-039 FR-4).
+
+    Scans ``session.messages`` for an AIMessage tool call with the same name
+    and normalized args, then returns the content of the ToolMessage that
+    follows it with the matching ``tool_call_id`` (before the next AIMessage).
+    """
+    messages = session.messages
+    for index, message in enumerate(messages):
+        if not isinstance(message, AIMessage):
+            continue
+        for tool_call in getattr(message, "tool_calls", None) or []:
+            if tool_call.get("name") != name:
+                continue
+            if _normalize_tool_args(tool_call.get("args") or {}) != norm_args:
+                continue
+            call_id = tool_call.get("id")
+            for follower in messages[index + 1:]:
+                if isinstance(follower, AIMessage):
+                    break
+                if (
+                    isinstance(follower, ToolMessage)
+                    and follower.tool_call_id == call_id
+                ):
+                    return _content_to_str(follower.content)
+    return None
+
+
 async def _run_loop(
     session: Session,
     llm: Any,
@@ -388,6 +422,36 @@ async def _run_loop(
                     "pending_approval": pending_payload,
                     "usage": dict(call_usage),
                 }
+
+            # spec-039 FR-4/FR-5: after the permission gate and before actual
+            # execution, skip non-dangerous calls identical (name + normalized
+            # args) to an earlier call in this session and replay the previous
+            # result. Dangerous tools keep going through human approval.
+            previous_result = None
+            if not agent_tools.is_dangerous(name):
+                previous_result = _find_previous_tool_result(
+                    session, name, _normalize_tool_args(args)
+                )
+            if previous_result is not None:
+                content = (
+                    "[重复调用已跳过] 与历史调用完全相同，此前结果："
+                    f"{previous_result[:800]}"
+                )
+                session.messages.append(
+                    ToolMessage(content=content, tool_call_id=tool_call.get("id"))
+                )
+                logger.info(
+                    "重复调用已跳过: session=%s tool=%s", session.session_id, name
+                )
+                entry = {
+                    "tool": name,
+                    "args": args,
+                    "result": content,
+                    "status": "skipped",
+                }
+                log.append(entry)
+                await _safe_emit(emit_fn, "tool_call", {"entry": entry})
+                continue
 
             await _set_status_emit(
                 session.session_id, f"executing:{name} (第{steps}步)", emit_fn

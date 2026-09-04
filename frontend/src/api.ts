@@ -280,6 +280,17 @@ export async function listSearchHistory(): Promise<SearchHistoryItem[]> {
   return get<SearchHistoryItem[]>('/search/history')
 }
 
+export interface MetadataBackfillResult {
+  updated: number
+  skipped_non_arxiv: number
+  unchanged: number
+  failed: number
+}
+
+export async function backfillMetadata(): Promise<MetadataBackfillResult> {
+  return post<MetadataBackfillResult>('/papers/metadata/backfill', {})
+}
+
 export async function getSearchHistory(id: number): Promise<SearchHistoryDetail> {
   return get<SearchHistoryDetail>(`/search/history/${id}`)
 }
